@@ -1,0 +1,1 @@
+Please find implementation of the igb driver in the linux kernel and learn it. I'm mostly interested in recent xdp support addition and any reported problems. Ideally I would like you to produce me a book "Linux networking drivers based on igb". The book should be for a person new to kernel and drivers, but with some minimal understanding.

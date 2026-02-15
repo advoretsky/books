@@ -1,0 +1,1117 @@
+% ══════════════════════════════════════════════════════════════════════════
+% Linux Networking Drivers Based on the Intel igb Driver
+% LaTeX Source — can produce PDF, and serves as basis for other formats
+% ══════════════════════════════════════════════════════════════════════════
+\documentclass[11pt,a4paper,openany]{book}
+
+% ── Packages ──────────────────────────────────────────────────────────────
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=1in]{geometry}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{tocloft}
+\usepackage{enumitem}
+\usepackage{microtype}
+\usepackage{parskip}
+
+% ── Colors ────────────────────────────────────────────────────────────────
+\definecolor{cdark}{HTML}{1B4F72}
+\definecolor{cmed}{HTML}{2E75B6}
+\definecolor{clight}{HTML}{3498DB}
+\definecolor{cgreen}{HTML}{27AE60}
+\definecolor{corange}{HTML}{E67E22}
+\definecolor{cred}{HTML}{E74C3C}
+\definecolor{cgray}{HTML}{F5F5F5}
+\definecolor{ccodebg}{HTML}{F8F8F8}
+\definecolor{ccodekw}{HTML}{0000FF}
+\definecolor{ccodestr}{HTML}{A31515}
+\definecolor{ccodecmt}{HTML}{008000}
+
+% ── Hyperref config ───────────────────────────────────────────────────────
+\hypersetup{
+  colorlinks=true,
+  linkcolor=cdark,
+  urlcolor=cmed,
+  citecolor=cdark,
+  bookmarks=true,
+  bookmarksnumbered=true,
+  pdftitle={Linux Networking Drivers Based on the Intel igb Driver},
+  pdfauthor={Generated with Claude},
+  pdfsubject={Linux kernel networking, igb driver, XDP, AF_XDP},
+}
+
+% ── Code listings ─────────────────────────────────────────────────────────
+\lstset{
+  basicstyle=\small\ttfamily,
+  backgroundcolor=\color{ccodebg},
+  frame=single,
+  framerule=0.4pt,
+  rulecolor=\color{gray!40},
+  breaklines=true,
+  breakatwhitespace=false,
+  columns=flexible,
+  keepspaces=true,
+  showstringspaces=false,
+  tabsize=4,
+  xleftmargin=4pt,
+  xrightmargin=4pt,
+  aboveskip=8pt,
+  belowskip=8pt,
+  keywordstyle=\color{ccodekw}\bfseries,
+  stringstyle=\color{ccodestr},
+  commentstyle=\color{ccodecmt}\itshape,
+  language=C,
+  morekeywords={u8,u16,u32,u64,__iomem,bool,dma_addr_t,__be16,
+    SEC,__uint,__type,struct,union,enum,static,inline,
+    napi_struct,sk_buff,xdp_buff,xdp_frame,xdp_md,
+    bpf_prog,net_device,pci_dev,igb_adapter,igb_ring,igb_q_vector},
+}
+
+\lstdefinestyle{shell}{
+  language=bash,
+  morekeywords={ethtool,ip,echo,sudo,tee,clang,cat,bpftrace},
+  keywordstyle=\color{cmed}\bfseries,
+}
+
+% ── Chapter/Section formatting ────────────────────────────────────────────
+\titleformat{\chapter}[display]
+  {\normalfont\huge\bfseries\color{cdark}}
+  {\chaptertitlename\ \thechapter}{16pt}{\Huge}
+\titleformat{\section}
+  {\normalfont\Large\bfseries\color{cmed}}{\thesection}{1em}{}
+\titleformat{\subsection}
+  {\normalfont\large\bfseries\color{clight}}{\thesubsection}{1em}{}
+
+% ── Headers/Footers ───────────────────────────────────────────────────────
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\itshape\color{gray} Linux Networking Drivers Based on igb}
+\fancyhead[R]{\small\itshape\color{gray} \leftmark}
+\fancyfoot[C]{\small\color{gray} \thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\footrulewidth}{0pt}
+
+% ── TOC formatting ────────────────────────────────────────────────────────
+\renewcommand{\cftchapfont}{\bfseries\color{cdark}}
+\renewcommand{\cftsecfont}{\color{cmed}}
+
+% ── Callout environments ──────────────────────────────────────────────────
+\usepackage{mdframed}
+\newmdenv[
+  leftline=true, rightline=false, topline=false, bottomline=false,
+  linewidth=3pt, linecolor=cgreen,
+  innerleftmargin=10pt, innertopmargin=6pt, innerbottommargin=6pt,
+  skipabove=8pt, skipbelow=8pt
+]{tipbox}
+
+\newmdenv[
+  leftline=true, rightline=false, topline=false, bottomline=false,
+  linewidth=3pt, linecolor=corange,
+  innerleftmargin=10pt, innertopmargin=6pt, innerbottommargin=6pt,
+  skipabove=8pt, skipbelow=8pt
+]{notebox}
+
+\newmdenv[
+  leftline=true, rightline=false, topline=false, bottomline=false,
+  linewidth=3pt, linecolor=cred,
+  innerleftmargin=10pt, innertopmargin=6pt, innerbottommargin=6pt,
+  skipabove=8pt, skipbelow=8pt
+]{warnbox}
+
+\newcommand{\tip}[1]{\begin{tipbox}\textbf{\color{cgreen}TIP:} #1\end{tipbox}}
+\newcommand{\note}[1]{\begin{notebox}\textbf{\color{corange}NOTE:} #1\end{notebox}}
+\newcommand{\warning}[1]{\begin{warnbox}\textbf{\color{cred}WARNING:} #1\end{warnbox}}
+
+% ── Inline code ───────────────────────────────────────────────────────────
+\newcommand{\code}[1]{\texttt{\color{cred!80!black}#1}}
+
+% ══════════════════════════════════════════════════════════════════════════
+\begin{document}
+
+% ── Title Page ────────────────────────────────────────────────────────────
+\begin{titlepage}
+\centering
+\vspace*{2.5cm}
+{\Huge\bfseries\color{cdark} Linux Networking Drivers\par}
+\vspace{0.6cm}
+{\LARGE\color{cmed} Based on the Intel igb Driver\par}
+\vspace{0.4cm}
+{\large\color{gray} From Ring Buffers to AF\_XDP Zero-Copy\par}
+\vfill
+{\large A Practical Guide for Developers New to the Kernel\par}
+\vspace{0.4cm}
+{\color{gray} February 2026\par}
+\vspace{2cm}
+\end{titlepage}
+
+% ── Table of Contents ─────────────────────────────────────────────────────
+\tableofcontents
+\clearpage
+
+% ══════════════════════════════════════════════════════════════════════════
+\chapter{Introduction}
+% ══════════════════════════════════════════════════════════════════════════
+
+\section{What This Book Covers}
+
+This book is a comprehensive guide to understanding Linux networking drivers, using Intel's \textbf{igb} driver as the primary case study. The igb driver manages Intel's 1 Gigabit Ethernet controllers --- specifically the 82575, 82576, 82580, I350, I354, and I210/I211 chipsets --- and serves as an excellent example because it implements virtually every feature a modern networking driver needs: DMA ring buffers, NAPI polling, MSI-X interrupts, SR-IOV virtualization, hardware timestamping, and most recently XDP (eXpress Data Path) and AF\_XDP zero-copy support.
+
+We chose the igb driver for several reasons. First, it is mature and well-understood, having been in the kernel since version 2.6.25. Second, Intel's 1GbE controllers are among the most commonly deployed Ethernet adapters in servers, embedded systems, and networking appliances worldwide. Third, the driver is clean enough to learn from while still being complex enough to demonstrate real-world patterns. Finally, recent additions of XDP and AF\_XDP zero-copy support (landed in Linux 6.14) make it especially relevant for anyone interested in high-performance packet processing.
+
+\section{Who This Book Is For}
+
+This book targets software engineers who have some programming experience (ideally in C) and a basic understanding of operating systems, but who have never worked inside the Linux kernel. If you know what a system call is, can read C code, and understand the basics of how a computer's memory works, you have all the prerequisites you need.
+
+By the end of this book, you will understand how a packet travels from the wire to userspace, how the igb driver manages hardware resources, and how XDP and AF\_XDP allow you to process packets at speeds approaching line rate without ever touching the traditional network stack.
+
+\section{The igb Driver at a Glance}
+
+The igb driver lives in the Linux kernel source tree at:
+
+\begin{lstlisting}[style=shell]
+drivers/net/ethernet/intel/igb/
+\end{lstlisting}
+
+It consists of several key source files:
+
+\begin{longtable}{p{3.5cm} p{10cm}}
+\toprule
+\textbf{File} & \textbf{Purpose} \\
+\midrule
+\endhead
+\code{igb\_main.c} & Core driver logic: probe, open, close, transmit, receive, NAPI poll, XDP \\
+\code{igb.h} & Main header: data structures (\code{igb\_adapter}, \code{igb\_ring}, \code{igb\_q\_vector}) \\
+\code{igb\_ethtool.c} & ethtool interface: statistics, ring params, self-test, diagnostics \\
+\code{igb\_ptp.c} & IEEE 1588 Precision Time Protocol / hardware clock support \\
+\code{igb\_xsk.c} & AF\_XDP zero-copy support (added in Linux 6.14) \\
+\code{e1000\_hw.h} & Hardware register definitions and constants \\
+\code{e1000\_82575.c/h} & Hardware-abstraction layer for 82575/82576/82580 \\
+\code{e1000\_i210.c/h} & Hardware-specific code for I210/I211 controllers \\
+\code{e1000\_mac.c/h} & Common MAC operations (link, flow control) \\
+\code{e1000\_phy.c/h} & PHY (physical layer) management \\
+\bottomrule
+\end{longtable}
+
+\section{Supported Hardware}
+
+The igb driver supports a range of Intel Gigabit Ethernet controllers. Each generation brought new features:
+
+\begin{longtable}{l l l p{6cm}}
+\toprule
+\textbf{Controller} & \textbf{PCIe Gen} & \textbf{Max Queues} & \textbf{Key Features} \\
+\midrule
+\endhead
+82575 & Gen1 x1 & 3 RX / 3 TX & Basic multi-queue, MSI-X \\
+82576 & Gen2 x4 & 16 RX / 16 TX & SR-IOV (up to 7 VFs), VMDq \\
+82580 & Gen2 x4 & 8 RX / 8 TX & DCA, improved timestamp \\
+I350 & Gen2 x4 & 8 RX / 8 TX & Enhanced SR-IOV, EEE, 4-port \\
+I354 & Gen2 x1 & 8 RX / 8 TX & Quad-port, SFP support \\
+I210 & Gen2 x1 & 4 RX / 4 TX & PTP (ns precision), AVB, CBS/LaunchTime \\
+I211 & Gen2 x1 & 2 RX / 2 TX & Consumer variant of I210 \\
+\bottomrule
+\end{longtable}
+
+\note{The I210 and I211 are particularly popular in embedded and IoT applications due to their precise hardware timestamping and Audio/Video Bridging (AVB) capabilities.}
+
+\section{Key Timeline of igb XDP Development}
+
+\begin{longtable}{l l p{9cm}}
+\toprule
+\textbf{Date} & \textbf{Kernel} & \textbf{Milestone} \\
+\midrule
+\endhead
+Sep 2020 & 5.10 & Initial XDP support (XDP\_PASS, XDP\_DROP, XDP\_TX, XDP\_REDIRECT) \\
+Oct 2020 & 5.10 & Follow-up: TX timeout fix, VLAN double header, metadata support \\
+2023--2024 & 6.x & AF\_XDP zero-copy patches developed and reviewed (8 revisions) \\
+Jan 2025 & 6.14 & AF\_XDP zero-copy Rx and Tx support merged into net-next \\
+\bottomrule
+\end{longtable}
+
+
+% ══════════════════════════════════════════════════════════════════════════
+\chapter{Linux Kernel Networking Fundamentals}
+% ══════════════════════════════════════════════════════════════════════════
+
+\section{The Network Stack in 60 Seconds}
+
+When a packet arrives at a network interface card (NIC), it goes through several stages before reaching a userspace application:
+
+\begin{enumerate}[leftmargin=2em]
+  \item Packet arrives at the NIC from the physical medium (copper, fiber).
+  \item The NIC copies the packet into a pre-allocated region of system RAM via DMA (Direct Memory Access).
+  \item The NIC raises a hardware interrupt to notify the CPU.
+  \item The interrupt handler in the driver schedules a NAPI poll (software interrupt).
+  \item The NAPI poll function harvests packets from the DMA ring buffer.
+  \item Each packet is wrapped in a socket buffer (\code{sk\_buff}) and passed to the protocol stack.
+  \item The protocol stack (IP, TCP/UDP) processes headers and delivers data to sockets.
+  \item The application reads data from the socket via system calls (\code{read}/\code{recv}/\code{recvmsg}).
+\end{enumerate}
+
+XDP inserts itself between steps 2 and 5 --- it runs a BPF program on the raw packet data before any \code{sk\_buff} is allocated, which is why it can be so fast.
+
+\section{PCI and PCIe: How the NIC Talks to the CPU}
+
+Every Intel Gigabit Ethernet controller communicates with the host system over PCI Express (PCIe). Understanding PCIe is fundamental to understanding NIC drivers because it governs how the driver discovers, configures, and communicates with the hardware.
+
+\subsection{PCI Device Discovery}
+
+When the system boots, the PCI subsystem enumerates all devices on the bus. Each device is identified by a Vendor ID and Device ID pair. The igb driver registers itself with the PCI subsystem by providing a table of supported device IDs:
+
+\begin{lstlisting}
+static const struct pci_device_id igb_pci_tbl[] = {
+    { PCI_VDEVICE(INTEL, E1000_DEV_ID_82575EB_COPPER), board_82575 },
+    { PCI_VDEVICE(INTEL, E1000_DEV_ID_I210_COPPER),    board_82575 },
+    { PCI_VDEVICE(INTEL, E1000_DEV_ID_I211_COPPER),    board_82575 },
+    /* ... more entries ... */
+};
+\end{lstlisting}
+
+When the PCI subsystem finds a device matching one of these IDs, it calls the driver's \code{probe} function.
+
+\subsection{Base Address Registers (BARs)}
+
+PCIe devices expose memory regions through Base Address Registers (BARs). The igb driver maps BAR~0 to access the NIC's control and status registers (CSRs). All communication between the driver and hardware happens through reading and writing these memory-mapped registers.
+
+\subsection{DMA --- Direct Memory Access}
+
+DMA is the mechanism that allows the NIC to read and write system RAM without CPU involvement. This is crucial for performance: instead of the CPU copying every byte of every packet, the NIC writes packet data directly into pre-allocated buffers in RAM.
+
+The driver's job is to:
+\begin{itemize}[leftmargin=2em]
+  \item Allocate memory pages for packet buffers.
+  \item Map those pages for DMA access (translate virtual to physical addresses).
+  \item Tell the NIC where these buffers are by writing DMA addresses into descriptor rings.
+  \item After the NIC writes packet data, unmap/sync the DMA region so the CPU sees correct data.
+\end{itemize}
+
+\warning{DMA addresses are not the same as physical addresses on systems with an IOMMU. The IOMMU translates DMA addresses, providing isolation (important for SR-IOV) and allowing 32-bit devices to access memory above 4\,GB.}
+
+\section{Interrupts: MSI-X, MSI, and Legacy}
+
+Interrupts are how the NIC tells the CPU that something happened. There are three interrupt delivery mechanisms:
+
+\begin{longtable}{l p{5cm} p{5.5cm}}
+\toprule
+\textbf{Type} & \textbf{Description} & \textbf{Advantage} \\
+\midrule
+\endhead
+MSI-X & Multiple vectors, each with own IRQ & Per-queue interrupts, CPU affinity control \\
+MSI & Single message-signaled interrupt & No sharing, cleaner than legacy \\
+Legacy (INTx) & Shared, level-triggered pin & Universally supported, but slowest \\
+\bottomrule
+\end{longtable}
+
+The igb driver prefers MSI-X because it allows each queue (or queue pair) to have its own interrupt vector directed to a specific CPU core. The driver falls back to MSI, then legacy, if MSI-X is not available.
+
+\section{NAPI: The Polling Revolution}
+
+NAPI (New API) is a Linux kernel mechanism that replaces the old ``one interrupt per packet'' model with a hybrid interrupt-driven/polling approach. It is the single most important optimization in the Linux networking stack.
+
+\subsection{The Problem with Pure Interrupts}
+
+If a NIC generates one interrupt for every received packet, a system under heavy load (say, 1 million packets per second) would need to handle 1 million interrupts per second. Each interrupt involves context switching, saving/restoring registers, and other overhead. The system would spend all its time handling interrupts and no time processing packets. This condition is called ``receive livelock.''
+
+\subsection{How NAPI Works}
+
+NAPI solves this with a two-phase approach:
+
+\begin{enumerate}[leftmargin=2em]
+  \item \textbf{Interrupt phase:} When the first packet arrives, the NIC raises an interrupt. The interrupt handler disables further interrupts for that queue and schedules a NAPI poll.
+  \item \textbf{Polling phase:} The softirq subsystem calls the driver's poll function, which processes packets in a loop up to a ``budget'' (default 64 packets per invocation).
+  \item If more packets remain, the poll is rescheduled. If the ring is empty, the driver re-enables interrupts and exits polling mode.
+\end{enumerate}
+
+In the igb driver, the key functions are:
+
+\begin{lstlisting}
+igb_msix_ring()    /* Interrupt handler: calls napi_schedule() */
+igb_poll()         /* NAPI poll: calls igb_clean_tx_irq() + igb_clean_rx_irq() */
+igb_clean_rx_irq() /* Harvests packets from the RX ring */
+\end{lstlisting}
+
+\tip{Under sustained high traffic, NAPI may never re-enable interrupts because the ring buffer is never empty. This is ideal --- the system processes packets at maximum rate with zero interrupt overhead. This is the same principle behind busy-polling in AF\_XDP.}
+
+\section{Socket Buffers (sk\_buff)}
+
+The \code{sk\_buff} (usually abbreviated ``skb'') is the fundamental data structure for packets in the Linux kernel. It contains a pointer to packet data, header offsets, metadata (device, timestamp, checksum info, protocol), and linked list pointers for queuing.
+
+Allocating and managing \code{sk\_buff}s is a significant source of overhead. This is one key reason XDP is faster --- it operates on raw \code{xdp\_buff} structures that are much lighter.
+
+
+% ══════════════════════════════════════════════════════════════════════════
+\chapter{igb Driver Architecture}
+% ══════════════════════════════════════════════════════════════════════════
+
+\section{Driver Lifecycle}
+
+A kernel driver follows a well-defined lifecycle:
+
+\begin{enumerate}[leftmargin=2em]
+  \item \textbf{Module Load:} \code{igb\_init\_module()} registers the driver with the PCI subsystem.
+  \item \textbf{Device Probe:} For each matching PCI device, \code{igb\_probe()} allocates the adapter structure, maps BAR registers, resets the hardware, and registers the network device.
+  \item \textbf{Interface Up:} \code{igb\_open()} allocates ring buffers, sets up DMA, registers interrupts, and starts the hardware.
+  \item \textbf{Data Path:} Packets are received via NAPI polling and transmitted via \code{igb\_xmit\_frame()}.
+  \item \textbf{Interface Down:} \code{igb\_close()} stops the hardware, frees rings and interrupts.
+  \item \textbf{Device Remove:} \code{igb\_remove()} tears down everything allocated in probe.
+  \item \textbf{Module Unload:} \code{igb\_exit\_module()} unregisters from PCI.
+\end{enumerate}
+
+\section{Key Data Structures}
+
+\subsection{igb\_adapter}
+
+The \code{igb\_adapter} structure is the driver's ``brain'' --- it holds all per-device state:
+
+\begin{lstlisting}
+struct igb_adapter {
+    struct net_device    *netdev;      /* The Linux network device     */
+    struct pci_dev       *pdev;        /* The PCI device               */
+    struct e1000_hw      hw;           /* Hardware abstraction layer   */
+    struct bpf_prog      *xdp_prog;   /* Attached XDP program         */
+
+    struct igb_ring      *tx_ring[16]; /* Transmit ring pointers       */
+    struct igb_ring      *rx_ring[16]; /* Receive ring pointers        */
+    struct igb_q_vector  *q_vector[8]; /* Queue vector array           */
+
+    unsigned int         num_tx_queues;
+    unsigned int         num_rx_queues;
+    unsigned int         num_q_vectors;
+    /* ... hundreds more fields ... */
+};
+\end{lstlisting}
+
+\subsection{igb\_ring}
+
+Each transmit or receive queue is represented by an \code{igb\_ring}:
+
+\begin{lstlisting}
+struct igb_ring {
+    struct igb_q_vector  *q_vector;   /* Parent interrupt vector      */
+    struct net_device    *netdev;
+    struct device        *dev;         /* For DMA operations           */
+    struct bpf_prog      *xdp_prog;   /* Per-ring XDP program pointer */
+    struct xsk_buff_pool *xsk_pool;   /* AF_XDP zero-copy pool        */
+
+    union {
+        struct igb_tx_buffer *tx_buffer_info;
+        struct igb_rx_buffer *rx_buffer_info;
+    };
+
+    void                 *desc;        /* Descriptor ring (DMA-coherent) */
+    dma_addr_t           dma;          /* Physical addr of desc ring   */
+    unsigned int         size;         /* Size of desc ring in bytes   */
+
+    u16                  count;        /* Number of descriptors        */
+    u16                  next_to_use;  /* Driver writes here           */
+    u16                  next_to_clean;/* Driver reads/frees here      */
+    u8 __iomem           *tail;        /* MMIO addr of tail register   */
+};
+\end{lstlisting}
+
+\subsection{igb\_q\_vector}
+
+A queue vector ties together an interrupt, one or more rings, and NAPI polling:
+
+\begin{lstlisting}
+struct igb_q_vector {
+    struct igb_adapter   *adapter;
+    struct igb_ring_container rx, tx; /* Associated rings              */
+    struct napi_struct   napi;        /* NAPI instance                 */
+    u16                  itr_val;     /* Interrupt throttle rate       */
+};
+\end{lstlisting}
+
+\section{The Descriptor Ring}
+
+The descriptor ring is the primary communication mechanism between the driver and the NIC hardware. It is a circular buffer of fixed-size descriptors (16 bytes each) allocated in DMA-coherent memory.
+
+\subsection{How It Works}
+
+Each descriptor contains a DMA address pointing to a packet buffer in system RAM, plus metadata (packet length, status bits, checksum offloads). Two pointers track the ring state:
+
+\begin{itemize}[leftmargin=2em]
+  \item \textbf{next\_to\_use (NTU):} Where the driver places the next available buffer (RX) or packet (TX). The driver advances this pointer and writes it to the hardware tail register.
+  \item \textbf{next\_to\_clean (NTC):} Where the driver looks for completed operations. The driver reads the Descriptor Done (DD) status bit.
+\end{itemize}
+
+The hardware maintains its own head pointer (readable via MMIO). The space between head and tail represents descriptors owned by the hardware.
+
+\subsection{RX Descriptor Format}
+
+Intel uses ``Advanced Receive Descriptors'' with two formats:
+
+\begin{lstlisting}
+/* Read format (driver -> hardware) */
++----------------------------------------------+
+| Buffer Address [63:0]                        |  8 bytes
++----------------------------------------------+
+| Header Buffer Address [63:0]                 |  8 bytes
++----------------------------------------------+
+
+/* Writeback format (hardware -> driver) */
++----------------------------------------------+
+| Packet Checksum | IP ID | Status/Error       |  8 bytes
++----------------------------------------------+
+| VLAN | Error | Status | Checksum | Length     |  8 bytes
++----------------------------------------------+
+\end{lstlisting}
+
+\subsection{TX Descriptor Format}
+
+\begin{lstlisting}
+/* Advanced Transmit Descriptor */
++----------------------------------------------+
+| Buffer Address [63:0]                        |  8 bytes
++----------------------------------------------+
+| PAYLEN | PORTS | CC | IDX | STA | DCMD | ... |  8 bytes
++----------------------------------------------+
+\end{lstlisting}
+
+The command (DCMD) field tells the hardware what offloads to perform: checksum insertion, TSO, VLAN tag insertion, etc.
+
+\section{Buffer Management and Page Recycling}
+
+One of the most performance-critical aspects of the igb driver is how it manages memory for packet data:
+
+\begin{enumerate}[leftmargin=2em]
+  \item \textbf{Pre-allocation:} During ring setup, the driver allocates one page per RX descriptor and maps it for DMA.
+  \item \textbf{Split pages:} Each 4\,KB page can hold multiple packet buffers (e.g., two 2\,KB buffers). The \code{page\_offset} field tracks which half is in use.
+  \item \textbf{Page recycling:} After processing, the driver checks if the page can be reused via a \code{pagecnt\_bias} mechanism, avoiding expensive atomic refcount operations.
+  \item \textbf{The flip:} If reusable, the driver ``flips'' to the other half of the page, serving multiple receive operations from a single allocation.
+\end{enumerate}
+
+\tip{Page recycling is a critical optimization. Without it, the driver would need to call the page allocator for every received packet, a major bottleneck at high packet rates.}
+
+
+% ══════════════════════════════════════════════════════════════════════════
+\chapter{The Receive Path in Detail}
+% ══════════════════════════════════════════════════════════════════════════
+
+\section{From Wire to Ring Buffer}
+
+When a packet arrives at the NIC, the following sequence occurs entirely in hardware:
+
+\begin{enumerate}[leftmargin=2em]
+  \item The MAC (Media Access Controller) verifies the Ethernet frame CRC.
+  \item If RSS is enabled, the NIC computes a hash and selects a receive queue.
+  \item The NIC reads the next available RX descriptor from the descriptor ring.
+  \item Using the buffer address, the NIC DMAs the packet data into system RAM.
+  \item The NIC writes back the descriptor with status information (length, checksum, VLAN).
+  \item The NIC updates its internal head pointer.
+  \item If interrupt moderation has expired, the NIC raises an MSI-X interrupt.
+\end{enumerate}
+
+\section{igb\_clean\_rx\_irq: The Heart of the Receive Path}
+
+This function is called from \code{igb\_poll()} and does the actual work:
+
+\begin{lstlisting}
+static int igb_clean_rx_irq(struct igb_q_vector *q_vector, int budget)
+{
+    struct igb_ring *rx_ring = q_vector->rx.ring;
+    u16 cleaned_count = igb_desc_unused(rx_ring);
+    struct sk_buff *skb = rx_ring->skb;
+
+    while (likely(total_packets < budget)) {
+        union e1000_adv_rx_desc *rx_desc;
+        struct igb_rx_buffer *rx_buffer;
+
+        /* 1. Get the next descriptor */
+        rx_desc = IGB_RX_DESC(rx_ring, rx_ring->next_to_clean);
+        if (!igb_test_staterr(rx_desc, E1000_RXD_STAT_DD))
+            break;  /* No more completed descriptors */
+
+        /* 2. Memory barrier to ensure fresh data */
+        dma_rmb();
+
+        /* 3. Get the buffer and unmap DMA */
+        rx_buffer = igb_get_rx_buffer(rx_ring, size, &rx_buf_pgcnt);
+
+        /* 4. *** XDP RUNS HERE *** (if program loaded) */
+        if (xdp_prog) {
+            xdp_result = igb_run_xdp(adapter, rx_ring, &xdp, xdp_prog);
+            if (xdp_result != IGB_XDP_PASS) continue;
+        }
+
+        /* 5. Build an sk_buff from the data */
+        skb = igb_construct_skb(rx_ring, rx_buffer, &xdp, timestamp);
+
+        /* 6. Process headers, VLAN, checksum */
+        igb_process_skb_fields(rx_ring, rx_desc, skb);
+
+        /* 7. Send up the stack via GRO */
+        napi_gro_receive(&q_vector->napi, skb);
+    }
+
+    /* 8. Refill the ring with fresh buffers */
+    if (cleaned_count)
+        igb_alloc_rx_buffers(rx_ring, cleaned_count);
+
+    return total_packets;
+}
+\end{lstlisting}
+
+Notice step 4: this is where XDP hooks into the receive path. If an XDP program is attached, it runs on the raw packet data before any \code{sk\_buff} is allocated. If the program returns \code{XDP\_DROP}, \code{XDP\_TX}, or \code{XDP\_REDIRECT}, the allocation in step~5 is completely skipped.
+
+\section{GRO: Generic Receive Offload}
+
+Before packets reach the protocol stack, they pass through GRO (Generic Receive Offload). GRO merges small packets from the same TCP flow into larger ones, reducing per-packet overhead in the upper layers. This is the software equivalent of hardware LRO, but safer because it preserves packet boundaries.
+
+\section{Interrupt Moderation}
+
+The igb driver implements adaptive interrupt throttling (ITR) to balance latency and throughput. You can override this with ethtool:
+
+\begin{lstlisting}[style=shell]
+ethtool -C ethX rx-usecs 50     # Set RX interrupt coalesce to 50us
+ethtool -C ethX adaptive-rx on  # Enable adaptive mode
+\end{lstlisting}
+
+
+% ══════════════════════════════════════════════════════════════════════════
+\chapter{The Transmit Path}
+% ══════════════════════════════════════════════════════════════════════════
+
+\section{From Socket to Wire}
+
+When an application calls \code{send()}, the packet traverses the stack in reverse:
+
+\begin{enumerate}[leftmargin=2em]
+  \item The protocol layer builds the packet and calls the device's transmit function.
+  \item The qdisc (queuing discipline) enqueues the packet.
+  \item \code{dev\_hard\_start\_xmit()} calls \code{igb\_xmit\_frame()}.
+  \item \code{igb\_xmit\_frame()} maps the sk\_buff data for DMA and writes transmit descriptors.
+  \item The driver writes the tail register to tell the hardware new descriptors are available.
+  \item The hardware reads descriptors, fetches packet data via DMA, and transmits.
+  \item After transmission, the hardware writes back the descriptor with a Done status.
+  \item In the next NAPI poll, \code{igb\_clean\_tx\_irq()} frees the transmitted buffers.
+\end{enumerate}
+
+\section{TX Descriptor Setup}
+
+For each packet, the driver creates one or more TX descriptors. The first descriptor (``context descriptor'') may contain offload parameters (TSO, checksum). A key optimization is that the driver maps the existing sk\_buff's data pages for DMA rather than copying --- zero-copy transmit from the driver's perspective.
+
+\section{Hardware Offloads}
+
+\begin{longtable}{p{4cm} p{9.5cm}}
+\toprule
+\textbf{Offload} & \textbf{Description} \\
+\midrule
+\endhead
+TX Checksum & Hardware computes and inserts L3/L4 checksums \\
+TSO & Hardware splits large TCP segments into MTU-sized frames \\
+VLAN Insertion & Hardware inserts VLAN tags on egress \\
+IEEE 1588 Timestamping & Hardware records precise TX timestamps (I210) \\
+LaunchTime / CBS & Time-based scheduling of frames (I210, for AVB/TSN) \\
+\bottomrule
+\end{longtable}
+
+
+% ══════════════════════════════════════════════════════════════════════════
+\chapter{XDP (eXpress Data Path) in igb}
+% ══════════════════════════════════════════════════════════════════════════
+
+\section{What is XDP?}
+
+XDP is a high-performance, programmable packet processing framework built on eBPF. It allows you to attach a small program to the NIC driver that runs for every received packet, before the kernel allocates an \code{sk\_buff} or does any protocol processing.
+
+\begin{longtable}{l p{4cm} p{5.5cm}}
+\toprule
+\textbf{Verdict} & \textbf{Action} & \textbf{Use Case} \\
+\midrule
+\endhead
+\code{XDP\_PASS} & Continue to normal stack & Selective filtering \\
+\code{XDP\_DROP} & Drop immediately & DDoS mitigation, firewalling \\
+\code{XDP\_TX} & Transmit back out same NIC & Reflection, load balancers \\
+\code{XDP\_REDIRECT} & Forward to another NIC/CPU/AF\_XDP & Forwarding, AF\_XDP \\
+\code{XDP\_ABORTED} & Error case, drop with trace & Debugging \\
+\bottomrule
+\end{longtable}
+
+On igb hardware, the original XDP patches demonstrated:
+
+\begin{longtable}{l l}
+\toprule
+\textbf{Path} & \textbf{Performance} \\
+\midrule
+\endhead
+Normal stack routing & 382 Kpps \\
+XDP Redirect (\code{xdp\_fwd}) & 1.48 Mpps \\
+XDP Drop & 1.48 Mpps \\
+\bottomrule
+\end{longtable}
+
+Tested on an Intel Atom C2338 at 1.74\,GHz with two I211 NICs --- achieving line rate forwarding at 1\,Gbps on a very low-power CPU.
+
+\section{How XDP Was Added to igb}
+
+XDP support was contributed by Sven Auhagen (Voleatech) in September 2020, closely following the ixgbe driver's implementation. The patch went through 6 revisions.
+
+\subsection{Shared TX Queues}
+
+Unlike ixgbe (which has enough hardware queues to dedicate separate ones for XDP), igb has limited TX queues. XDP must share TX queues with the normal stack, requiring locking:
+
+\begin{lstlisting}
+static inline struct igb_ring *igb_xdp_tx_queue_mapping(
+        struct igb_adapter *adapter)
+{
+    unsigned int r_idx = smp_processor_id();
+    if (r_idx >= adapter->num_tx_queues)
+        r_idx = r_idx % adapter->num_tx_queues;
+    return adapter->tx_ring[r_idx];
+}
+\end{lstlisting}
+
+\subsection{Buffer Layout Changes}
+
+When XDP is active, the driver adds \code{XDP\_PACKET\_HEADROOM} (256 bytes) before each packet buffer. This allows XDP programs to prepend headers using \code{bpf\_xdp\_adjust\_head()} without buffer reallocation.
+
+\subsection{The igb\_run\_xdp Function}
+
+This is the core XDP dispatch function:
+
+\begin{lstlisting}
+static int igb_run_xdp(struct igb_adapter *adapter,
+                       struct igb_ring *rx_ring,
+                       struct xdp_buff *xdp,
+                       struct bpf_prog *xdp_prog)
+{
+    u32 act = bpf_prog_run_xdp(xdp_prog, xdp);
+
+    switch (act) {
+    case XDP_PASS:
+        return IGB_XDP_PASS;
+    case XDP_TX:
+        igb_xdp_xmit_back(adapter, xdp);
+        return IGB_XDP_TX;
+    case XDP_REDIRECT:
+        xdp_do_redirect(adapter->netdev, xdp, xdp_prog);
+        return IGB_XDP_REDIRECT;
+    default: /* XDP_ABORTED or XDP_DROP */
+        return IGB_XDP_CONSUMED;
+    }
+}
+\end{lstlisting}
+
+\section{XDP Limitations on igb}
+
+\begin{itemize}[leftmargin=2em]
+  \item \textbf{MTU restriction:} Max frame must fit in a single page ($\sim$3.5\,KB with headroom). No jumbo frames with XDP.
+  \item \textbf{TX queue sharing:} XDP shares TX queues with the stack, requiring locking that adds overhead.
+  \item \textbf{No multi-buffer XDP:} igb does not support XDP for fragmented/multi-buffer packets.
+  \item \textbf{TX timeout (fixed):} Early versions could trigger transmit queue timeout. Fixed by setting \code{trans\_start = jiffies} in the XDP transmit path.
+\end{itemize}
+
+\section{Loading an XDP Program on igb}
+
+\begin{lstlisting}[style=shell]
+# Compile an XDP program
+clang -O2 -target bpf -c xdp_prog.c -o xdp_prog.o
+
+# Load in driver mode (native XDP)
+ip link set dev eth0 xdpdrv obj xdp_prog.o sec xdp
+
+# Verify it's loaded
+ip link show eth0   # Should show: xdp/id:XX
+
+# Remove the program
+ip link set dev eth0 xdp off
+\end{lstlisting}
+
+\note{When an XDP program is loaded or unloaded, the igb driver resets the interface to reconfigure buffer layouts. This briefly interrupts traffic.}
+
+
+% ══════════════════════════════════════════════════════════════════════════
+\chapter{AF\_XDP Zero-Copy Support}
+% ══════════════════════════════════════════════════════════════════════════
+
+\section{What is AF\_XDP?}
+
+AF\_XDP is a socket type (address family) that provides a high-performance path from the NIC directly to userspace. Introduced in Linux 4.18, when combined with XDP it allows userspace applications to send and receive raw packets with minimal kernel overhead through shared memory rings.
+
+\section{AF\_XDP Architecture}
+
+An AF\_XDP socket uses four shared rings plus a UMEM (user-space memory area):
+
+\begin{longtable}{l l p{7cm}}
+\toprule
+\textbf{Component} & \textbf{Direction} & \textbf{Purpose} \\
+\midrule
+\endhead
+FILL Ring & User $\rightarrow$ Kernel & User provides empty buffer addresses for RX \\
+RX Ring & Kernel $\rightarrow$ User & Kernel delivers received packet descriptors \\
+TX Ring & User $\rightarrow$ Kernel & User submits packets for transmission \\
+COMPLETION Ring & Kernel $\rightarrow$ User & Kernel confirms transmitted packets \\
+UMEM & Shared & Pre-registered memory region for all packet data \\
+\bottomrule
+\end{longtable}
+
+The UMEM is a contiguous memory region divided into fixed-size ``chunks'' (typically 4\,KB, matching page size). All packet data is stored in UMEM chunks, and the rings pass indices/addresses referencing these chunks.
+
+\section{Copy Mode vs Zero-Copy Mode}
+
+\subsection{Copy Mode (Generic)}
+
+In copy mode, the kernel copies packet data from the driver's DMA buffers into the UMEM. This works with any XDP-capable driver but adds latency and CPU overhead. Performance is typically 2--3$\times$ better than regular sockets but far from the hardware limit.
+
+\subsection{Zero-Copy Mode (Driver-Specific)}
+
+In zero-copy mode, the driver performs DMA directly into/from the UMEM buffers. There is no data copy at all --- the packet data the NIC writes via DMA is the exact same memory the application reads. This requires explicit support from each driver.
+
+For igb, zero-copy support was added in Linux 6.14 by Sriram Yagnaraman (Linutronix) and Kurt Kanzenbach. The patches went through 8 revisions over nearly two years (2023--2025).
+
+\section{igb AF\_XDP Zero-Copy Implementation}
+
+The zero-copy implementation lives in \code{igb\_xsk.c} and modifies the core receive and transmit paths.
+
+\subsection{Key Data Structures}
+
+The \code{igb\_ring} gains a new field:
+
+\begin{lstlisting}
+struct xsk_buff_pool *xsk_pool;  /* Non-NULL when ZC is active */
+\end{lstlisting}
+
+\subsection{RX Zero-Copy Path}
+
+\begin{enumerate}[leftmargin=2em]
+  \item \textbf{Fill:} Instead of allocating pages, the driver calls \code{xsk\_buff\_alloc()} to get buffers from the user's FILL ring.
+  \item \textbf{Receive:} DMA writes directly into these UMEM buffers. No copy needed.
+  \item \textbf{Deliver:} The driver writes packet descriptors to the RX ring.
+  \item \textbf{Recycle:} The application returns buffer addresses via the FILL ring.
+\end{enumerate}
+
+\subsection{TX Zero-Copy Path}
+
+\begin{enumerate}[leftmargin=2em]
+  \item The application writes packet data into UMEM buffers and posts descriptors to the TX ring.
+  \item The driver reads TX ring descriptors and maps corresponding UMEM addresses for DMA.
+  \item Hardware reads packet data directly from UMEM and transmits.
+  \item The driver posts completed buffer addresses to the COMPLETION ring.
+\end{enumerate}
+
+\section{Performance Numbers}
+
+Benchmarks from QEMU-emulated 82576 NIC (real hardware would be significantly faster):
+
+\begin{longtable}{l r r r}
+\toprule
+\textbf{Benchmark} & \textbf{XDP-SKB} & \textbf{XDP-DRV} & \textbf{XDP-DRV (ZC)} \\
+\midrule
+\endhead
+rxdrop (64B) & 200 Kpps & 210 Kpps & 310 Kpps \\
+txpush (64B) & 1 Kpps & 1 Kpps & 410 Kpps \\
+l2fwd (64B) & 0.9 Kpps & 1 Kpps & 160 Kpps \\
+\bottomrule
+\end{longtable}
+
+\warning{These numbers were from a QEMU emulator, not real hardware. On actual I210/I350 hardware, absolute numbers would be significantly higher.}
+
+\section{Known Issues and Fixes During Development}
+
+The AF\_XDP zero-copy patches went through 8 revisions. Key issues found and fixed:
+
+\begin{itemize}[leftmargin=2em]
+  \item \textbf{TX unit hang (v2$\to$v3):} Fixed by properly setting \code{time\_stamp} on \code{tx\_buffer\_info}.
+  \item \textbf{Uninitialized nb\_buffs (v2$\to$v3):} Variable not initialized, causing undefined behavior. Reported by Simon Horman.
+  \item \textbf{READ/WRITE\_ONCE for xsk\_pool (v5$\to$v6):} Added atomic access macros to prevent torn reads.
+  \item \textbf{synchronize\_net() missing (v5$\to$v6):} Needed when disabling zero-copy to ensure no NAPI poll uses stale pointer.
+  \item \textbf{napi\_id for busy polling (v4$\to$v5):} Registration was missing the napi\_id, which broke busy polling.
+  \item \textbf{olinfo\_status in TX (v4$\to$v5):} TX descriptor field not set in zero-copy path; frames were not transmitted on real hardware.
+\end{itemize}
+
+\section{Using AF\_XDP with igb}
+
+\begin{lstlisting}[style=shell]
+# 1. Steer traffic to a specific queue
+ethtool -N eth0 rx-flow-hash udp4 fn
+ethtool -N eth0 flow-type udp4 src-port 4242 action 0
+
+# 2. Run AF_XDP in zero-copy mode
+./xdpsock -i eth0 -q 0 -r -N -z  # Force zero-copy
+
+# 3. Best performance with busy polling
+echo 2 | sudo tee /sys/class/net/eth0/napi_defer_hard_irqs
+echo 200000 | sudo tee /sys/class/net/eth0/gro_flush_timeout
+\end{lstlisting}
+
+\note{If zero-copy is not supported, AF\_XDP silently falls back to copy mode. Use the \code{XDP\_ZEROCOPY} bind flag to force zero-copy and get an error if unavailable.}
+
+
+% ══════════════════════════════════════════════════════════════════════════
+\chapter{SR-IOV and Virtualization}
+% ══════════════════════════════════════════════════════════════════════════
+
+\section{What is SR-IOV?}
+
+Single Root I/O Virtualization (SR-IOV) is a PCI specification that allows a single physical NIC to present itself as multiple virtual NICs. Each Virtual Function (VF) can be assigned directly to a VM, providing near-native performance. The igb driver supports SR-IOV on 82576 and I350 controllers (up to 7 VFs each).
+
+\section{PF and VF Architecture}
+
+\begin{itemize}[leftmargin=2em]
+  \item \textbf{Physical Function (PF):} The main driver (igb) that manages physical hardware and controls VF configuration.
+  \item \textbf{Virtual Function (VF):} A lightweight function with its own queues, interrupts, and register space. Each VF appears as a separate PCI device managed by the \code{igbvf} driver.
+\end{itemize}
+
+The PF driver is responsible for creating/destroying VFs, setting MAC addresses and VLAN filters, rate limiting VF traffic, handling mailbox messages, and anti-spoofing enforcement.
+
+\section{Enabling SR-IOV}
+
+\begin{lstlisting}[style=shell]
+# Enable 4 VFs on the PCI device
+echo 4 > /sys/bus/pci/devices/0000:03:00.0/sriov_numvfs
+
+# Configure a VF MAC address
+ip link set eth0 vf 0 mac 00:11:22:33:44:55
+\end{lstlisting}
+
+\warning{Do not unload the PF driver (igb) while VFs are assigned to guests. This can cause system instability.}
+
+
+% ══════════════════════════════════════════════════════════════════════════
+\chapter{Performance Tuning and Troubleshooting}
+% ══════════════════════════════════════════════════════════════════════════
+
+\section{ethtool: Your Best Friend}
+
+\begin{lstlisting}[style=shell]
+ethtool -i eth0             # Driver info
+ethtool -g eth0             # Ring sizes
+ethtool -G eth0 rx 4096 tx 4096  # Increase rings
+ethtool -l eth0             # Queue count
+ethtool -L eth0 combined 4  # Set queues
+ethtool -k eth0             # Offload settings
+ethtool -S eth0             # Statistics (very detailed)
+ethtool -c eth0             # Interrupt coalescing
+\end{lstlisting}
+
+\section{IRQ Affinity}
+
+For maximum performance, pin each queue's interrupt to a specific CPU core:
+
+\begin{lstlisting}[style=shell]
+cat /proc/interrupts | grep eth0
+echo 1 > /proc/irq/<IRQ_NUM>/smp_affinity  # Pin to CPU 0
+\end{lstlisting}
+
+\tip{For latency-sensitive workloads, disable irqbalance and manually pin IRQs. For throughput, irqbalance usually does a good job.}
+
+\section{Common Problems}
+
+\subsection{NETDEV WATCHDOG: Transmit Queue Timeout}
+
+This is one of the most commonly reported igb issues. The kernel's watchdog detects that a TX queue hasn't transmitted within a timeout period and resets the adapter. Common causes:
+
+\begin{itemize}[leftmargin=2em]
+  \item PCIe link instability (especially with Thunderbolt docks)
+  \item Misconfigured interrupt affinity leading to starvation
+  \item XDP programs that consume all TX descriptors without cleaning
+  \item Hardware issues (check dmesg for PCIe errors)
+\end{itemize}
+
+\subsection{Hardware Initialization Failure (-5)}
+
+Some I210 devices fail with ``Hardware Initialization Failure'' error code -5 (PHY init error). Typically caused by EEPROM/NVM corruption or firmware incompatibility. Updating the NIC firmware usually resolves this.
+
+\subsection{XDP MTU Limitations}
+
+When loading an XDP program, the driver checks if the MTU fits within a single page buffer. If jumbo frames are enabled (MTU $> \sim$3500), XDP will refuse to load. Solution: reduce MTU to 1500 first.
+
+\section{Monitoring with bpftrace}
+
+\begin{lstlisting}[style=shell]
+bpftrace -e 'kprobe:igb_poll { @polls = count(); }'
+bpftrace -e 'kprobe:igb_alloc_rx_buffers { @refills = count(); }'
+cat /proc/net/softnet_stat
+\end{lstlisting}
+
+
+% ══════════════════════════════════════════════════════════════════════════
+\chapter{Practical XDP and AF\_XDP Development}
+% ══════════════════════════════════════════════════════════════════════════
+
+\section{Writing Your First XDP Program}
+
+\begin{lstlisting}
+#include <linux/bpf.h>
+#include <bpf/bpf_helpers.h>
+
+struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, __u32);
+    __type(value, __u64);
+} pkt_count SEC(".maps");
+
+SEC("xdp")
+int xdp_counter(struct xdp_md *ctx)
+{
+    __u32 key = 0;
+    __u64 *count = bpf_map_lookup_elem(&pkt_count, &key);
+    if (count)
+        (*count)++;
+    return XDP_PASS;
+}
+
+char _license[] SEC("license") = "GPL";
+\end{lstlisting}
+
+\section{XDP Forwarding Between igb Interfaces}
+
+A common use case is forwarding packets between two igb interfaces at XDP speed. The kernel's \code{xdp\_fwd} sample program does this using \code{bpf\_redirect\_map()} with a DEVMAP (device map). This was used to benchmark the 1.48\,Mpps figure on the Atom CPU.
+
+\section{AF\_XDP Application Architecture}
+
+A typical AF\_XDP application follows this pattern:
+
+\begin{enumerate}[leftmargin=2em]
+  \item Create an AF\_XDP socket and allocate a UMEM region.
+  \item Configure the FILL, RX, TX, and COMPLETION rings via \code{setsockopt}/\code{mmap}.
+  \item Load an XDP program that steers traffic to the socket (via an XSKMAP).
+  \item Fill the FILL ring with buffer addresses.
+  \item Enter a poll loop: check RX ring, process packets, post TX, check COMPLETION ring.
+  \item Return processed buffers to the FILL ring for reuse.
+\end{enumerate}
+
+For Rust developers, the \textbf{aya} crate provides a safe AF\_XDP API. For C, the kernel's \code{libxdp} and \code{libbpf} libraries are the standard choice.
+
+\section{Relevance to Userspace Packet Processing}
+
+If you're building high-performance packet processing applications (SD-WAN routers, VPN gateways, firewalls):
+
+\begin{itemize}[leftmargin=2em]
+  \item igb shares TX queues --- minimize \code{XDP\_TX}, prefer \code{XDP\_REDIRECT} to another interface.
+  \item AF\_XDP zero-copy requires Linux 6.14+ for igb.
+  \item 1.48\,Mpps on an Atom CPU proves line-rate 1GbE forwarding on very low-power hardware.
+  \item For 10/40/100\,GbE, ixgbe/i40e/ice follow the same patterns but with dedicated XDP TX queues.
+\end{itemize}
+
+
+% ══════════════════════════════════════════════════════════════════════════
+\chapter{Comparing igb with Other Intel Drivers}
+% ══════════════════════════════════════════════════════════════════════════
+
+\section{The Intel Driver Family}
+
+\begin{longtable}{l l l l l}
+\toprule
+\textbf{Driver} & \textbf{Speed} & \textbf{Controllers} & \textbf{XDP} & \textbf{AF\_XDP ZC} \\
+\midrule
+\endhead
+e1000e & 1 GbE & I217--I219 (PCH) & No & No \\
+igb & 1 GbE & 82575--I211 & Yes (5.10+) & Yes (6.14+) \\
+igc & 2.5 GbE & I225, I226 & Yes & Yes (5.14+) \\
+ixgbe & 10 GbE & 82599, X540, X550 & Yes & Yes \\
+i40e & 10--40 GbE & X710, XL710, XXV710 & Yes & Yes \\
+ice & 10--100 GbE & E800 series & Yes & Yes \\
+\bottomrule
+\end{longtable}
+
+\section{Key Architectural Differences}
+
+\begin{longtable}{l l l l}
+\toprule
+\textbf{Feature} & \textbf{igb (1GbE)} & \textbf{ixgbe (10GbE)} & \textbf{ice (100GbE)} \\
+\midrule
+\endhead
+TX queues for XDP & Shared (locked) & Dedicated & Dedicated \\
+Max queues & 8--16 & 64--128 & 256+ \\
+AF\_XDP ZC since & 6.14 & 4.18 & 5.5 \\
+Multi-buffer XDP & No & Yes & Yes \\
+HW timestamping & Yes (I210) & Limited & Yes \\
+\bottomrule
+\end{longtable}
+
+
+% ══════════════════════════════════════════════════════════════════════════
+\appendix
+% ══════════════════════════════════════════════════════════════════════════
+
+\chapter{Glossary}
+
+\begin{longtable}{p{3cm} p{10.5cm}}
+\toprule
+\textbf{Term} & \textbf{Definition} \\
+\midrule
+\endhead
+AF\_XDP & Address Family for XDP sockets, providing high-performance raw packet access \\
+BAR & Base Address Register --- PCIe memory region exposed by a device \\
+BPF/eBPF & Extended Berkeley Packet Filter --- in-kernel virtual machine for safe programs \\
+CBS & Credit-Based Shaper --- TSN traffic shaping algorithm (I210) \\
+DCA & Direct Cache Access --- optimization to warm CPU cache for incoming data \\
+DD & Descriptor Done --- status bit set by hardware when a descriptor is complete \\
+DMA & Direct Memory Access --- hardware reading/writing RAM without CPU \\
+GRO & Generic Receive Offload --- software merging of small packets \\
+ITR & Interrupt Throttle Rate --- minimum interval between interrupts \\
+MSI-X & Message Signaled Interrupts Extended --- per-queue interrupt vectors \\
+NAPI & New API --- interrupt/polling hybrid for efficient packet processing \\
+NTU/NTC & Next To Use / Next To Clean --- ring buffer pointers \\
+PTP & Precision Time Protocol --- IEEE 1588, nanosecond clock synchronization \\
+RSS & Receive Side Scaling --- hardware distribution of packets across queues \\
+sk\_buff & Socket buffer --- the kernel's packet data structure \\
+SR-IOV & Single Root I/O Virtualization --- hardware NIC virtualization \\
+TSN & Time-Sensitive Networking --- IEEE 802.1 standards for deterministic networking \\
+TSO & TCP Segmentation Offload --- hardware splits large TCP segments \\
+UMEM & User Memory --- pre-registered memory region for AF\_XDP \\
+VF & Virtual Function --- virtual NIC in SR-IOV \\
+XDP & eXpress Data Path --- programmable fast-path packet processing \\
+XSK & XDP Socket --- another name for AF\_XDP socket \\
+\bottomrule
+\end{longtable}
+
+
+\chapter{Essential Kernel Config Options}
+
+\begin{lstlisting}[style=shell]
+CONFIG_IGB=m              # igb driver (module)
+CONFIG_BPF=y              # BPF subsystem
+CONFIG_BPF_SYSCALL=y      # BPF system call
+CONFIG_XDP_SOCKETS=y      # AF_XDP support
+CONFIG_BPF_JIT=y          # JIT compiler for BPF (huge perf boost)
+CONFIG_NET_ACT_BPF=m      # TC BPF actions
+CONFIG_PTP_1588_CLOCK=y   # PTP support (for I210 timestamping)
+CONFIG_VFIO=m             # For SR-IOV passthrough to VMs
+\end{lstlisting}
+
+
+\chapter{Key Source Files Quick Reference}
+
+\begin{longtable}{p{5cm} p{8.5cm}}
+\toprule
+\textbf{File Path} & \textbf{What to Look For} \\
+\midrule
+\endhead
+\code{igb/igb\_main.c} & Everything: probe, open, tx, rx, NAPI, XDP, netdev\_ops \\
+\code{igb/igb.h} & All data structures: igb\_adapter, igb\_ring, igb\_q\_vector \\
+\code{igb/igb\_xsk.c} & AF\_XDP zero-copy: igb\_clean\_rx\_irq\_zc, igb\_xmit\_zc \\
+\code{igb/igb\_ethtool.c} & Diagnostics: ring config, stats, self-test \\
+\code{igb/igb\_ptp.c} & Hardware timestamping and PTP clock \\
+\code{net/xdp/xsk.c} & Core AF\_XDP socket implementation \\
+\code{net/core/xdp.c} & XDP core: redirect, memory management \\
+\code{kernel/bpf/verifier.c} & BPF verifier (validates XDP programs) \\
+\code{samples/bpf/xdpsock\_user.c} & Reference AF\_XDP application \\
+\bottomrule
+\end{longtable}
+
+
+\chapter{Further Reading}
+
+\begin{itemize}[leftmargin=2em]
+  \item Linux kernel documentation: \code{Documentation/networking/device\_drivers/ethernet/intel/igb.rst}
+  \item AF\_XDP documentation: \code{Documentation/networking/af\_xdp.rst}
+  \item NAPI documentation: \code{Documentation/networking/napi.rst}
+  \item XDP tutorial: \url{https://github.com/xdp-project/xdp-tutorial}
+  \item PackageCloud blog: ``Monitoring and Tuning the Linux Networking Stack'' (uses igb as example)
+  \item Intel I350 datasheet (hardware register reference)
+  \item Original XDP patch: commit \code{9cbc948b5a20}
+  \item AF\_XDP zero-copy patches: search \url{https://lore.kernel.org} for ``igb zero copy''
+\end{itemize}
+
+\end{document}
