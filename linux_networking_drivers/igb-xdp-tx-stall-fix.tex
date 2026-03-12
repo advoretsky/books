@@ -134,17 +134,17 @@
 {\Huge\bfseries Fixing the igb Driver\\[0.3em]
 XDP/AF\_XDP TX Queue Stall\par}
 \vspace{1.5cm}
-{\Large\itshape A Deep Dive into NAPI Polling, AF\_XDP Zero-Copy,\\
-and the TX Watchdog in the Linux Kernel\par}
+{\Large\itshape A Deep Dive into NAPI Polling, \texttt{napi\_disable()},\\
+and the Redundant \texttt{napi\_synchronize()} in the Linux Kernel\par}
 \vspace{2cm}
 {\Large Alex Dvoretsky\par}
 \vspace{1cm}
-{\large February 2026\par}
+{\large March 2026\par}
 \vfill
 {\normalsize
-Based on a 3-patch series for the Linux kernel \texttt{igb} driver\\
+Based on a single-line patch for the Linux kernel \texttt{igb} driver\\
 targeting the Intel I210/I211 Gigabit Ethernet controllers.\\[1em]
-Kernel version: 6.17}
+Kernel version: 6.17 \quad|\quad Patch version: v2}
 \end{titlepage}
 
 % ── Front matter ──────────────────────────────────────────────────────
@@ -183,39 +183,40 @@ The interface becomes completely unresponsive.  No packets are
 transmitted or received.  Pings fail, SSH sessions hang, and the only
 recovery is to reload the \texttt{igb} module or reboot the machine.
 
-The root cause is a chain of interacting bugs in the \texttt{igb} driver's
-handling of XDP program removal when AF\_XDP zero-copy sockets are
-active.  The chain involves:
+The root cause is a redundant \func{napi\_synchronize} call in
+\func{igb\_down}.  When the AF\_XDP buffer pool is destroyed, the
+zero-copy RX poll function enters an infinite loop, returning full
+budget on every cycle.  \func{napi\_synchronize} spins waiting for
+this poll to finish---but it never will.  The subsequent
+\func{napi\_disable}, which \emph{can} break the loop via the
+\flag{NAPI\_STATE\_DISABLE} mechanism, never gets a chance to run.
 
-\begin{enumerate}
-\item An infinite NAPI poll loop in the zero-copy RX path
-      (\func{igb\_clean\_rx\_irq\_zc}).
-\item A missing guard in the TX timeout handler (\func{igb\_tx\_timeout}).
-\item Race conditions during the XDP program transition in
-      \func{igb\_xdp\_setup}.
-\end{enumerate}
+The fix is a single line: remove the \func{napi\_synchronize} call.
 
 \section{Scope of This Book}
 
 This book explains the Linux kernel subsystems that interact to produce
-this bug, then walks through a 3-patch fix series.  Each chapter builds
-the prerequisite knowledge for understanding the patches:
+this bug, then walks through the fix and why it is correct.  Each
+chapter builds the prerequisite knowledge:
 
 \begin{description}[style=nextline]
 \item[Chapter~\ref{ch:napi}] explains the NAPI polling architecture---how
     interrupts are coalesced into poll cycles, how poll completion works,
-    and how \func{napi\_synchronize} depends on the poll function signaling
-    ``done.''
+    and the critical difference between \func{napi\_synchronize} and
+    \func{napi\_disable}.
 \item[Chapter~\ref{ch:afxdp}] covers AF\_XDP zero-copy in the \texttt{igb}
-    driver: the buffer pool, the ZC receive path, and the
-    \func{ndo\_xsk\_wakeup} callback.
+    driver: the buffer pool, the ZC receive path, and what happens when
+    the pool is destroyed.
 \item[Chapter~\ref{ch:xdp-lifecycle}] traces the lifecycle of an XDP
     program: how \func{igb\_xdp\_setup} installs and removes programs, and
     how \func{igb\_close}/\func{igb\_open} perform the device reset.
-\item[Chapter~\ref{ch:watchdog}] describes the TX watchdog timer, the
-    timeout handler, and how stale timestamps trigger false alarms.
-\item[Chapter~\ref{ch:patches}] analyzes each patch: the root cause it
-    addresses, the fix, and why it is correct.
+\item[Chapter~\ref{ch:watchdog}] describes the TX watchdog timer---the
+    visible symptom of the bug, though not its root cause.
+\item[Chapter~\ref{ch:fix}] analyzes the v2 fix: why removing
+    \func{napi\_synchronize} is correct and sufficient.
+\item[Chapter~\ref{ch:evolution}] traces the evolution from an initial
+    3-patch v1 series to the minimal v2 fix, following reviewer feedback
+    from Intel's Maciej Fijalkowski.
 \end{description}
 
 \section{Affected Hardware}
@@ -225,7 +226,7 @@ AF\_XDP zero-copy support.  In practice, this means the Intel I210 and
 I211 controllers (PCI device IDs \texttt{0x1533} and \texttt{0x1539}),
 which are common on embedded and server platforms.
 
-The testing for this patch series was performed on an Intel I210 (PCI
+The testing for this patch was performed on an Intel I210 (PCI
 address \texttt{0000:08:00.0}) using the \texttt{igb} driver version
 shipped with Linux 6.17.
 
@@ -240,7 +241,9 @@ hardware interrupt, NAPI coalesces interrupts into \emph{poll cycles}
 where the driver processes packets in batches.
 
 Understanding NAPI is essential for this book because the TX stall bug
-is, at its core, a NAPI poll loop that never terminates.
+is, at its core, a NAPI poll loop that never terminates---and the fix
+relies on understanding how \func{napi\_disable} breaks such loops from
+the inside.
 
 \section{The Interrupt-to-Poll Transition}
 
@@ -322,8 +325,10 @@ this book are:
     \func{napi\_complete\_done} sees this flag, it re-schedules the
     poll instead of completing.  \\
 \flag{NAPI\_STATE\_DISABLE} &
-    NAPI is being disabled.  \func{napi\_schedule\_prep} will refuse
-    to schedule when this is set.  \\
+    NAPI is being disabled.  Set by \func{napi\_disable}.
+    \func{napi\_schedule\_prep} will refuse to schedule when this is set.
+    Crucially, \func{\_\_napi\_poll} checks this flag after every
+    full-budget poll return and forces completion if set.  \\
 \bottomrule
 \end{tabular}
 \caption{Key NAPI state flags.}
@@ -398,10 +403,9 @@ bool napi_complete_done(struct napi_struct *n, int work_done)
 The key insight is the \flag{MISSED} flag re-scheduling logic.  When
 another CPU (or the driver itself) sets \flag{MISSED} during the CAS
 window, \func{napi\_complete\_done} sees it and re-schedules NAPI
-instead of completing.  This is the ``missed interrupt'' recovery
-mechanism, and it is what gets exploited by the infinite loop bug.
+instead of completing.
 
-\section{\texttt{napi\_synchronize()}: Waiting for Poll Completion}
+\section{\texttt{napi\_synchronize()}: The Passive Wait}
 \label{sec:napi-synchronize}
 
 \func{napi\_synchronize} is a simple busy-wait that spins until the
@@ -418,15 +422,182 @@ static inline void napi_synchronize(const struct napi_struct *n)
 }
 \end{lstlisting}
 
-This function does not \emph{disable} future activations---it merely
-waits for the current poll cycle to end.  It is used by \func{igb\_down}
-to ensure all in-flight NAPI poll callbacks have completed before
-tearing down hardware resources.
+This function is purely passive: it waits for the poll function to
+finish on its own.  It does \emph{not} set any flags, does not signal
+the poll function, and does not prevent future scheduling.  It simply
+polls the \flag{NAPI\_STATE\_SCHED} bit with a 1\,ms sleep between
+iterations.
 
 \textbf{Critical property:} if the poll function never returns
 \texttt{done < budget}, then \func{napi\_complete\_done} is never called,
 \flag{NAPI\_STATE\_SCHED} is never cleared, and
-\func{napi\_synchronize} \textbf{hangs forever}.
+\func{napi\_synchronize} \textbf{spins forever}.  This is not a
+deadlock---it is a livelock: both the poll function and the synchronize
+caller are making progress (burning CPU), but neither can terminate.
+
+\subsection{Historical Context}
+
+The \func{napi\_synchronize} call in \func{igb\_down} was introduced in
+commit \texttt{41f149a285da} (``igb: Fix possible panic caused by Rx
+traffic arrival while interface is down'').  The intent was to ensure
+that no NAPI poll callback was actively running before disabling NAPI,
+so that the poll function would not access freed resources.
+
+At the time this commit was written (2009), the NAPI subsystem's
+\func{napi\_disable} was less sophisticated.  The
+\flag{NAPI\_STATE\_DISABLE} mechanism and the
+\func{napi\_disable\_pending} check in \func{\_\_napi\_poll} were
+later refinements that made the explicit synchronize unnecessary.
+
+\section{\texttt{napi\_disable()}: The Active Shutdown}
+\label{sec:napi-disable}
+
+\func{napi\_disable} is the intended way to shut down a NAPI instance
+during device teardown.  Unlike \func{napi\_synchronize}, it actively
+\emph{signals} the poll function to stop:
+
+\begin{lstlisting}[caption={\texttt{napi\_disable()} (net/core/dev.c)},
+    label=lst:napi-disable]
+void napi_disable(struct napi_struct *n)
+{
+    unsigned long val, new;
+
+    might_sleep();
+    set_bit(NAPI_STATE_DISABLE, &n->state);
+
+    val = READ_ONCE(n->state);
+    do {
+        while (val & NAPIF_STATE_SCHED) {
+            usleep_range(20, 200);
+            val = READ_ONCE(n->state);
+        }
+
+        new = val | NAPIF_STATE_SCHED |
+                    NAPIF_STATE_NPSVC;
+        new &= ~(NAPIF_STATE_DISABLE |
+                  NAPIF_STATE_PREFER_BUSY_POLL);
+    } while (!try_cmpxchg(&n->state, &val, new));
+}
+\end{lstlisting}
+
+The key steps are:
+
+\begin{enumerate}
+\item \textbf{Set \flag{NAPI\_STATE\_DISABLE}.}  This is the signal.
+    Once set, the NAPI core will intervene to break any stuck poll loop
+    (see Section~\ref{sec:napi-poll-check}).
+\item \textbf{Wait for \flag{NAPI\_STATE\_SCHED} to clear.}  Like
+    \func{napi\_synchronize}, this waits for the current poll to finish.
+    But because \flag{NAPI\_STATE\_DISABLE} is now set, the NAPI core
+    will \emph{force} the poll to finish (see below).
+\item \textbf{Atomically set \flag{SCHED} and \flag{NPSVC}.}  This
+    prevents any future scheduling---the NAPI instance is now
+    permanently disabled until \func{napi\_enable} is called.
+\end{enumerate}
+
+\textbf{The crucial difference:} \func{napi\_synchronize} waits
+passively for \flag{SCHED} to clear.  \func{napi\_disable} \emph{also}
+waits---but it first sets \flag{DISABLE}, which triggers the forced
+completion mechanism in \func{\_\_napi\_poll}.  This is why
+\func{napi\_disable} can handle a stuck poll loop and
+\func{napi\_synchronize} cannot.
+
+\section{\texttt{\_\_napi\_poll()}: The Forced Completion Mechanism}
+\label{sec:napi-poll-check}
+
+The NAPI core function \func{\_\_napi\_poll} is where the magic happens.
+After calling the driver's poll function, it checks whether a disable
+is pending:
+
+\begin{lstlisting}[caption={\texttt{\_\_napi\_poll()} forced completion (net/core/dev.c)},
+    label=lst:napi-poll-check]
+static int __napi_poll(struct napi_struct *n, bool *repoll)
+{
+    int work, weight;
+
+    weight = n->weight;
+    work = n->poll(n, weight);
+
+    if (likely(work < weight))
+        return work;
+
+    /* Driver returned full budget.
+     * Normally we would repoll, but check for disable first. */
+    if (unlikely(napi_disable_pending(n))) {
+        napi_complete(n);  /* forces SCHED clear */
+        return work;
+    }
+
+    /* ... busy poll, time limit checks ... */
+
+    *repoll = true;
+    return work;
+}
+\end{lstlisting}
+
+\func{napi\_disable\_pending} simply checks the \flag{NAPI\_STATE\_DISABLE}
+bit:
+
+\begin{lstlisting}[caption={\texttt{napi\_disable\_pending()} (include/linux/netdevice.h)}]
+static inline bool napi_disable_pending(struct napi_struct *n)
+{
+    return test_bit(NAPI_STATE_DISABLE, &n->state);
+}
+\end{lstlisting}
+
+When the poll function returns full budget \emph{and}
+\flag{NAPI\_STATE\_DISABLE} is set, \func{\_\_napi\_poll} calls
+\func{napi\_complete} to force-clear \flag{NAPI\_STATE\_SCHED}.  This
+breaks the infinite loop:
+
+\begin{enumerate}
+\item \func{napi\_disable} sets \flag{NAPI\_STATE\_DISABLE}.
+\item The poll function runs and returns full budget (the stuck loop).
+\item \func{\_\_napi\_poll} sees \func{napi\_disable\_pending} is true.
+\item \func{napi\_complete} clears \flag{NAPI\_STATE\_SCHED}.
+\item \func{napi\_disable} sees \flag{SCHED} clear and proceeds to
+    finalize the shutdown.
+\end{enumerate}
+
+This mechanism was designed precisely for situations where a poll
+function is stuck returning full budget.  It allows \func{napi\_disable}
+to reliably shut down any NAPI instance, regardless of what the poll
+function is doing.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    box/.style={draw, rounded corners, minimum width=5cm, minimum height=0.8cm,
+                text centered, font=\small},
+    arr/.style={-{Stealth[length=2.5mm]}, thick},
+    node distance=1cm
+]
+\node[box, fill=red!10] (sync) {napi\_synchronize()};
+\node[box, fill=green!10, right=3cm of sync] (disable) {napi\_disable()};
+
+\node[box, fill=gray!10, below=0.8cm of sync] (sync1) {Wait for SCHED clear};
+\node[box, fill=gray!10, below=of sync1] (sync2) {(no signal sent)};
+\node[box, fill=red!20, below=of sync2] (sync3) {Stuck poll $\Rightarrow$ hang forever};
+
+\node[box, fill=gray!10, below=0.8cm of disable] (dis1) {Set DISABLE flag};
+\node[box, fill=gray!10, below=of dis1] (dis2) {\_\_napi\_poll sees DISABLE};
+\node[box, fill=gray!10, below=of dis2] (dis3) {Forces napi\_complete()};
+\node[box, fill=green!20, below=of dis3] (dis4) {SCHED clears $\Rightarrow$ proceeds};
+
+\draw[arr] (sync) -- (sync1);
+\draw[arr] (sync1) -- (sync2);
+\draw[arr] (sync2) -- (sync3);
+
+\draw[arr] (disable) -- (dis1);
+\draw[arr] (dis1) -- (dis2);
+\draw[arr] (dis2) -- (dis3);
+\draw[arr] (dis3) -- (dis4);
+\end{tikzpicture}
+\caption{Comparison of \texttt{napi\_synchronize()} vs
+  \texttt{napi\_disable()} when a poll function is stuck returning full
+  budget.  Only \texttt{napi\_disable()} can break the loop.}
+\label{fig:sync-vs-disable}
+\end{figure}
 
 \section{\texttt{igb\_poll()}: The igb Driver's NAPI Callback}
 \label{sec:igb-poll}
@@ -509,9 +680,10 @@ When the adapter is going down (\flag{\_\_IGB\_DOWN} is set by
 immediately.  In the context of \func{igb\_poll}, \texttt{true} means
 ``TX work is complete'' (sets \texttt{clean\_complete = true}).
 
-This pattern is crucial: it ensures that during shutdown, the TX
-cleaning path does not hold up NAPI completion.  \textbf{The bug is
-that \func{igb\_clean\_rx\_irq\_zc} lacks this same check.}
+This pattern is relevant because \func{igb\_clean\_rx\_irq\_zc}
+\emph{lacks} the same check---but as we will see in
+Chapter~\ref{ch:fix}, the v2 fix makes such a check unnecessary by
+removing the \func{napi\_synchronize} that would hang.
 
 
 % ======================================================================
@@ -623,8 +795,6 @@ int igb_clean_rx_irq_zc(struct igb_q_vector *q_vector,
     unsigned int total_packets = 0;
     /* ... */
 
-    /* NO __IGB_DOWN CHECK HERE (this is the bug) */
-
     xdp_prog = READ_ONCE(rx_ring->xdp_prog);
 
     while (likely(total_packets < budget)) {
@@ -694,51 +864,12 @@ This creates an \textbf{infinite NAPI poll loop}: the function keeps
 returning \texttt{budget} because it cannot allocate buffers, and NAPI
 keeps calling it because it thinks there is more work to do.
 
-\section{\texttt{igb\_xsk\_wakeup()}: The \texttt{ndo\_xsk\_wakeup} Callback}
-\label{sec:xsk-wakeup}
-
-User-space triggers NAPI polling via the \func{sendmsg} system call on
-the AF\_XDP socket, which eventually calls the driver's
-\sym{ndo\_xsk\_wakeup} callback.  In \texttt{igb}, this is
-\func{igb\_xsk\_wakeup}:
-
-\begin{lstlisting}[caption={\texttt{igb\_xsk\_wakeup()} (igb\_xsk.c:527)},
-    label=lst:xsk-wakeup]
-int igb_xsk_wakeup(struct net_device *dev, u32 qid, u32 flags)
-{
-    struct igb_adapter *adapter = netdev_priv(dev);
-    struct e1000_hw *hw = &adapter->hw;
-    struct igb_ring *ring;
-    u32 eics = 0;
-
-    if (test_bit(__IGB_DOWN, &adapter->state))
-        return -ENETDOWN;
-
-    if (!igb_xdp_is_enabled(adapter))
-        return -EINVAL;
-
-    /* ... validation ... */
-
-    if (!napi_if_scheduled_mark_missed(
-            &ring->q_vector->napi)) {
-        /* Cause software interrupt */
-        if (adapter->flags & IGB_FLAG_HAS_MSIX) {
-            eics |= ring->q_vector->eims_value;
-            wr32(E1000_EICS, eics);
-        } else {
-            wr32(E1000_ICS, E1000_ICS_RXDMT0);
-        }
-    }
-
-    return 0;
-}
-\end{lstlisting}
-
-\textbf{Important:} this function is called under \texttt{rcu\_read\_lock()}
-by the AF\_XDP core.  This means that if we want to ensure no more
-\func{igb\_xsk\_wakeup} calls are in flight, we need
-\func{synchronize\_rcu}.  This fact becomes relevant in Patch~3
-(Chapter~\ref{ch:patches}).
+This infinite loop is the trigger condition for the bug.  However, as we
+will see, the infinite loop \emph{alone} does not cause the TX stall.
+The problem is that \func{igb\_down} calls \func{napi\_synchronize}
+\emph{before} \func{napi\_disable}.  \func{napi\_synchronize} cannot
+break the loop; \func{napi\_disable} can.  By the time
+\func{napi\_disable} would run, \func{igb\_down} is already stuck.
 
 \section{Buffer Pool Lifecycle}
 
@@ -757,8 +888,8 @@ The full lifecycle of a zero-copy buffer pool:
 \end{enumerate}
 
 The race between pool destruction and NAPI polling is what triggers
-the bug: \func{igb\_poll} reads a non-NULL \sym{xsk\_pool} pointer
-and calls \func{igb\_clean\_rx\_irq\_zc}, but by the time the
+the infinite loop: \func{igb\_poll} reads a non-NULL \sym{xsk\_pool}
+pointer and calls \func{igb\_clean\_rx\_irq\_zc}, but by the time the
 function tries to allocate buffers, the pool is already gone.
 
 
@@ -825,27 +956,6 @@ When a mode transition occurs on a running device, the function calls
 device teardown and reinitialization---the most disruptive operation
 the driver performs.
 
-\subsection{The \texttt{xchg()} Swap}
-
-The program pointer is swapped atomically using \func{xchg}:
-
-\begin{lstlisting}
-old_prog = xchg(&adapter->xdp_prog, prog);
-\end{lstlisting}
-
-This is an atomic read-modify-write: it stores \texttt{prog} into
-\texttt{adapter->xdp\_prog} and returns the previous value.  The
-\texttt{need\_reset} flag is then computed by comparing whether the
-``has XDP'' state changed:
-
-\begin{lstlisting}
-need_reset = (!!prog != !!old_prog);
-\end{lstlisting}
-
-The double negation (\texttt{!!}) converts the pointer to a boolean.
-If both are non-NULL (program replacement) or both are NULL (no-op),
-\texttt{need\_reset} is false and no close/open is needed.
-
 \section{\texttt{igb\_close()}: Tearing Down the Device}
 
 \func{igb\_close} is the network device's close callback
@@ -874,7 +984,7 @@ The real work happens in \func{igb\_down}.
 \func{igb\_down} is the core shutdown function.  Understanding its
 sequence is essential for understanding the bug:
 
-\begin{lstlisting}[caption={\texttt{igb\_down()} (igb\_main.c:2170)},
+\begin{lstlisting}[caption={\texttt{igb\_down()} (igb\_main.c:2170), before the fix},
     label=lst:igb-down]
 void igb_down(struct igb_adapter *adapter)
 {
@@ -903,8 +1013,9 @@ void igb_down(struct igb_adapter *adapter)
     /* (5) Wait for NAPI, then disable it */
     for (i = 0; i < adapter->num_q_vectors; i++) {
         if (adapter->q_vector[i]) {
-            napi_synchronize(
+            napi_synchronize(           /* <-- THE BUG */
                 &adapter->q_vector[i]->napi);
+            igb_set_queue_napi(adapter, i, NULL);
             napi_disable(
                 &adapter->q_vector[i]->napi);
         }
@@ -935,16 +1046,23 @@ The sequence has a clear dependency chain:
     possible.
 \end{enumerate}
 
-\textbf{The critical point:} step 5 can \emph{only} proceed if the poll
-function eventually returns \texttt{done < budget}.  If the poll
-function is stuck in an infinite loop (as with the ZC bug), step 5
-hangs forever, and steps 6--7 never execute.
+\textbf{The bug is in step 5.}  \func{napi\_synchronize} is called
+\emph{before} \func{napi\_disable}.  If the poll function is stuck in an
+infinite loop (as with the ZC bug described in
+Section~\ref{sec:clean-rx-zc}), \func{napi\_synchronize} hangs forever.
+\func{napi\_disable}---which \emph{could} break the loop---never gets
+a chance to run.
 
-\section{\texttt{igb\_up()} and \texttt{\_\_igb\_open()}: Bringing the Device Up}
+Between the \func{napi\_synchronize} and \func{napi\_disable} calls sits
+\func{igb\_set\_queue\_napi}, which performs an atomic pointer update
+(\texttt{rxq->napi = NULL}, \texttt{txq->napi = NULL}).  The poll path
+does not read these pointers, so this operation is safe to execute after
+removing \func{napi\_synchronize} and before \func{napi\_disable}.
+
+\section{\texttt{igb\_up()}: Bringing the Device Up}
 \label{sec:igb-up}
 
-\func{igb\_up} (and its more complete sibling \func{\_\_igb\_open}) reverses
-the shutdown:
+\func{igb\_up} reverses the shutdown:
 
 \begin{lstlisting}[caption={\texttt{igb\_up()} key steps (igb\_main.c:2122)}]
 int igb_up(struct igb_adapter *adapter)
@@ -972,52 +1090,17 @@ int igb_up(struct igb_adapter *adapter)
 }
 \end{lstlisting}
 
-The \flag{\_\_IGB\_DOWN} bit is cleared \emph{after} configuration but
-\emph{before} enabling NAPI and starting TX queues.
-
-\section{\texttt{igb\_reinit\_locked()}: The Reset Helper}
-
-\func{igb\_reinit\_locked} is a convenience wrapper that performs
-\func{igb\_down} + \func{igb\_up} while holding the \flag{\_\_IGB\_RESETTING}
-flag:
-
-\begin{lstlisting}[caption={\texttt{igb\_reinit\_locked()} (igb\_main.c:2238)}]
-void igb_reinit_locked(struct igb_adapter *adapter)
-{
-    while (test_and_set_bit(__IGB_RESETTING,
-                            &adapter->state))
-        usleep_range(1000, 2000);
-    igb_down(adapter);
-    igb_up(adapter);
-    clear_bit(__IGB_RESETTING, &adapter->state);
-}
-\end{lstlisting}
-
-This is called by \func{igb\_reset\_task} (the workqueue handler
-for TX timeouts) and various reconfiguration paths.
-
-\section{The Close/Open Window}
-\label{sec:close-open-window}
-
-When \func{igb\_xdp\_setup} calls \func{igb\_close} followed by
-\func{igb\_open}, there is a window during which:
-
-\begin{enumerate}
-\item The adapter is down (\flag{\_\_IGB\_DOWN} is set).
-\item All TX queues are stopped (\func{netif\_tx\_stop\_all\_queues}).
-\item The TX watchdog timer may still be armed from before the close.
-\item The \texttt{trans\_start} timestamps on the TX queues are stale
-    (they reflect the last transmission \emph{before} the close).
-\end{enumerate}
-
-This window is where the TX watchdog can fire a spurious timeout,
-because it sees stopped queues with stale timestamps.
-
 
 % ======================================================================
-\chapter{TX Watchdog and Timeout Handling}
+\chapter{The TX Watchdog: A Symptom, Not the Cause}
 \label{ch:watchdog}
 % ======================================================================
+
+The TX watchdog timer and its timeout handler are the \emph{visible
+symptom} of the bug---the ``transmit queue 0 timed out'' message that
+alerts the administrator.  Understanding the watchdog helps explain
+\emph{why} the bug manifests as a TX stall, even though the root cause
+is in the NAPI shutdown path.
 
 \section{\texttt{dev\_watchdog()}: The Network TX Watchdog Timer}
 
@@ -1057,249 +1140,234 @@ static void dev_watchdog(struct timer_list *t)
 \end{lstlisting}
 
 The default \texttt{watchdog\_timeo} is 5 seconds (\texttt{5*HZ}).
-The watchdog only checks queues that are \emph{stopped}---if a queue
-is actively transmitting, its \texttt{trans\_start} is continuously
-updated and the watchdog never fires.
 
-\subsection{The Conditions for a TX Timeout}
+\section{Why the Watchdog Fires During the Bug}
 
-All of the following must be true for the watchdog to fire:
+When \func{igb\_down} hangs at \func{napi\_synchronize}:
 
 \begin{enumerate}
-\item The device is present, running, and has carrier.
-\item A TX queue is stopped (via \func{netif\_stop\_subqueue} or
-    \func{netif\_tx\_stop\_all\_queues}).
-\item The queue's \texttt{trans\_start} timestamp is more than
-    \texttt{watchdog\_timeo} jiffies in the past.
+\item The hardware TX and RX are already disabled (steps 2--3 of
+    \func{igb\_down}).
+\item TX queues are stopped (\func{netif\_tx\_stop\_all\_queues}).
+\item The \texttt{trans\_start} timestamps are stale---they reflect the
+    last transmission \emph{before} the shutdown began.
+\item After 5 seconds, \func{dev\_watchdog} sees stopped queues with
+    stale timestamps and fires \func{igb\_tx\_timeout}.
+\item \func{igb\_tx\_timeout} schedules \func{igb\_reset\_task}, but
+    the reset cannot proceed because \func{igb\_down} is stuck.
+\item The TX queue remains permanently stalled.
 \end{enumerate}
 
-\section{\texttt{igb\_tx\_timeout()}: The Driver's Timeout Handler}
-
-When the watchdog detects a timeout, it calls the driver's
-\sym{ndo\_tx\_timeout} callback.  In \texttt{igb}, this is
-\func{igb\_tx\_timeout}:
-
-\begin{lstlisting}[caption={\texttt{igb\_tx\_timeout()} before patches (igb\_main.c:6649)}]
-static void igb_tx_timeout(struct net_device *netdev,
-              unsigned int __always_unused txqueue)
-{
-    struct igb_adapter *adapter = netdev_priv(netdev);
-    struct e1000_hw *hw = &adapter->hw;
-
-    /* Do the reset outside of interrupt context */
-    adapter->tx_timeout_count++;
-
-    if (hw->mac.type >= e1000_82580)
-        hw->dev_spec._82575.global_device_reset = true;
-
-    schedule_work(&adapter->reset_task);
-    wr32(E1000_EICS,
-         (adapter->eims_enable_mask & ~adapter->eims_other));
-}
-\end{lstlisting}
-
-The handler does two things:
-\begin{enumerate}
-\item Schedules \func{igb\_reset\_task} on a workqueue, which will call
-    \func{igb\_reinit\_locked} (= \func{igb\_down} + \func{igb\_up}).
-\item Triggers a software interrupt to attempt to flush any stuck
-    descriptors.
-\end{enumerate}
-
-\section{\texttt{igb\_reset\_task()}: The Reset Workqueue Handler}
-
-\begin{lstlisting}[caption={\texttt{igb\_reset\_task()} (igb\_main.c:6665)}]
-static void igb_reset_task(struct work_struct *work)
-{
-    struct igb_adapter *adapter;
-    adapter = container_of(work, struct igb_adapter,
-                           reset_task);
-
-    rtnl_lock();
-    /* If we're already down or resetting, just bail */
-    if (test_bit(__IGB_DOWN, &adapter->state) ||
-        test_bit(__IGB_RESETTING, &adapter->state)) {
-        rtnl_unlock();
-        return;
-    }
-
-    igb_dump(adapter);
-    netdev_err(adapter->netdev, "Reset adapter\n");
-    igb_reinit_locked(adapter);
-    rtnl_unlock();
-}
-\end{lstlisting}
-
-Note that \func{igb\_reset\_task} \emph{does} check \flag{\_\_IGB\_DOWN}
-before proceeding.  However, this check races with the timeout
-detection: the watchdog fires, \func{igb\_tx\_timeout} calls
-\func{schedule\_work}, and by the time the work item runs, the
-adapter state may have changed.  The work item may already be
-queued and waiting to run---and it will run \emph{after}
-\func{igb\_open} completes in the XDP transition path.
-
-\section{\texttt{trans\_start} and \texttt{txq\_trans\_cond\_update()}}
-
-The per-queue timestamp \texttt{trans\_start} is updated by the
-transmit path each time a packet is queued:
-
-\begin{lstlisting}[caption={\texttt{txq\_trans\_cond\_update()} (include/linux/netdevice.h)}]
-static inline void txq_trans_cond_update(
-    struct netdev_queue *txq)
-{
-    unsigned long now = jiffies;
-    if (READ_ONCE(txq->trans_start) != now)
-        WRITE_ONCE(txq->trans_start, now);
-}
-\end{lstlisting}
-
-The legacy single-queue helper \func{netif\_trans\_update} updates
-queue 0's \texttt{trans\_start}:
-
-\begin{lstlisting}[caption={\texttt{netif\_trans\_update()} (include/linux/netdevice.h)}]
-static inline void netif_trans_update(struct net_device *dev)
-{
-    struct netdev_queue *txq = netdev_get_tx_queue(dev, 0);
-    txq_trans_cond_update(txq);
-}
-\end{lstlisting}
-
-\section{The Stale Timestamp Problem}
-\label{sec:stale-timestamp}
-
-During the close/open transition in \func{igb\_xdp\_setup}:
-
-\begin{enumerate}
-\item \func{igb\_close} calls \func{igb\_down}, which calls
-    \func{netif\_tx\_stop\_all\_queues}.  The TX queues are now stopped.
-\item The \texttt{trans\_start} values still reflect the last
-    transmission \emph{before} the close.  No code updates them.
-\item The TX watchdog timer may have been armed before the close and
-    fires during the close/open window.
-\item The watchdog sees: stopped queues + stale \texttt{trans\_start}
-    that is more than 5 seconds old = \textbf{timeout}.
-\item \func{igb\_tx\_timeout} schedules \func{igb\_reset\_task}.
-\end{enumerate}
-
-This is a false positive: the queues are stopped because the device is
-being reconfigured, not because of a hardware hang.  But the timeout
-handler does not distinguish between the two cases.
-
-\begin{figure}[H]
-\centering
-\begin{tikzpicture}[
-    event/.style={draw, fill=blue!10, rounded corners, minimum width=4cm,
-                  minimum height=0.7cm, font=\small, text centered},
-    problem/.style={draw, fill=red!10, rounded corners, minimum width=4cm,
-                    minimum height=0.7cm, font=\small, text centered},
-    arr/.style={-{Stealth[length=2.5mm]}, thick},
-    node distance=0.8cm
-]
-\node[event] (close) {igb\_close()};
-\node[event, below=of close] (down) {set \_\_IGB\_DOWN};
-\node[event, below=of down] (stop) {netif\_tx\_stop\_all\_queues};
-\node[problem, below=of stop] (wd) {TX watchdog fires};
-\node[problem, below=of wd] (timeout) {igb\_tx\_timeout()};
-\node[problem, below=of timeout] (sched) {schedule\_work(reset\_task)};
-\node[event, below=1.2cm of sched] (open) {igb\_open()};
-\node[problem, below=of open] (reset) {reset\_task runs --- RACE!};
-
-\draw[arr] (close) -- (down);
-\draw[arr] (down) -- (stop);
-\draw[arr] (stop) -- node[right, font=\scriptsize\itshape] {stale trans\_start} (wd);
-\draw[arr] (wd) -- (timeout);
-\draw[arr] (timeout) -- (sched);
-\draw[arr] (sched) -- node[right, font=\scriptsize\itshape] {window} (open);
-\draw[arr] (open) -- (reset);
-\end{tikzpicture}
-\caption{The stale timestamp race during XDP close/open transition.}
-\label{fig:stale-timestamp}
-\end{figure}
+With the v2 fix, \func{igb\_down} completes quickly (via
+\func{napi\_disable}'s forced completion), so the watchdog never sees
+a 5-second gap.  The entire watchdog-timeout-reset chain never triggers.
 
 
 % ======================================================================
-\chapter{The Patch Series---Analysis and Correctness}
-\label{ch:patches}
+\chapter{The Fix: Removing \texttt{napi\_synchronize()}}
+\label{ch:fix}
 % ======================================================================
 
-This chapter analyzes each of the three patches in the fix series.
-For each patch, we describe the root cause, the fix, and why it is
-correct and sufficient.
+\section{The Patch}
 
-\section{Patch 1: \texttt{\_\_IGB\_DOWN} Check in \texttt{igb\_clean\_rx\_irq\_zc()}}
-\label{sec:patch1}
+The v2 fix is a single-line deletion:
 
-\subsection{Commit Message}
+\begin{lstlisting}[caption={The v2 patch (igb\_main.c)}, style=diffstyle]
+  for (i = 0; i < adapter->num_q_vectors; i++) {
+      if (adapter->q_vector[i]) {
+@@-          napi_synchronize(&adapter->q_vector[i]->napi);-@@
+          igb_set_queue_napi(adapter, i, NULL);
+          napi_disable(&adapter->q_vector[i]->napi);
+      }
+  }
+\end{lstlisting}
+
+\section{Commit Message}
 
 \begin{Verbatim}[fontsize=\small]
-igb: check __IGB_DOWN in igb_clean_rx_irq_zc()
+igb: remove napi_synchronize() in igb_down()
 
 When an AF_XDP zero-copy application terminates abruptly (e.g.,
 kill -9), the XSK buffer pool is destroyed but NAPI polling
-continues. igb_clean_rx_irq_zc() keeps returning budget (no
-descriptors, no buffers to allocate, xsk_buff_alloc() returns
-NULL) which makes napi_complete_done() re-arm the poll
-indefinitely.
+continues. igb_clean_rx_irq_zc() repeatedly returns the full
+budget, preventing napi_complete_done() from clearing
+NAPI_STATE_SCHED.
 
-Meanwhile, igb_down() -> napi_synchronize() waits for a NAPI
-poll cycle that signals completion with done < budget -- which
-never happens. This blocks igb_down() forever, and the 5-second
-TX watchdog fires because no TX completions are processed while
-NAPI is stuck.
+igb_down() calls napi_synchronize() before napi_disable() for
+each queue vector. napi_synchronize() spins waiting for
+NAPI_STATE_SCHED to clear, which never happens. igb_down()
+blocks indefinitely, the TX watchdog fires, and the TX queue
+remains permanently stalled.
 
-Fix this by adding an __IGB_DOWN check at the top of
-igb_clean_rx_irq_zc(), returning 0 immediately when the adapter
-is going down.
+napi_disable() already handles this correctly: it sets
+NAPI_STATE_DISABLE. After a full-budget poll, __napi_poll()
+checks napi_disable_pending(). If set, it forces completion
+and clears NAPI_STATE_SCHED, breaking the loop that
+napi_synchronize() cannot.
+
+napi_synchronize() was added in commit 41f149a285da ("igb: Fix
+possible panic caused by Rx traffic arrival while interface is
+down"). napi_disable() provides stronger guarantees: it prevents
+further scheduling and waits for any active poll to exit.
+Other Intel drivers (ixgbe, ice, i40e) use napi_disable()
+without a preceding napi_synchronize() in their down paths.
+
+Remove redundant napi_synchronize() call.
 
 Fixes: 2c6196013f84 ("igb: Add AF_XDP zero-copy Rx support")
 \end{Verbatim}
 
-\subsection{Root Cause Analysis}
+\section{Why \texttt{napi\_synchronize()} Is Redundant}
 
-The root cause is a missing early-exit check in
-\func{igb\_clean\_rx\_irq\_zc}.  Let's trace the exact sequence of
-events:
+The original purpose of \func{napi\_synchronize} was to ensure that no
+NAPI poll callback was actively running before the driver proceeded
+with resource teardown.  But \func{napi\_disable} already provides
+this guarantee and more:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lcc}
+\toprule
+\textbf{Property} & \textbf{napi\_synchronize()} & \textbf{napi\_disable()} \\
+\midrule
+Waits for current poll to finish  & Yes & Yes \\
+Signals poll to stop              & No  & Yes (DISABLE flag) \\
+Prevents future scheduling        & No  & Yes (sets SCHED+NPSVC) \\
+Handles stuck full-budget polls   & No  & Yes (forced completion) \\
+\bottomrule
+\end{tabular}
+\caption{Comparison of synchronization guarantees.}
+\end{table}
+
+The synchronization that \func{napi\_synchronize} provides is a strict
+subset of what \func{napi\_disable} provides.  Calling both in sequence
+is therefore redundant---\func{napi\_disable} alone is sufficient.
+
+\section{Why The Fix Is Correct}
 
 \begin{enumerate}
-\item An AF\_XDP zero-copy application is running on queue 0 with an
-    XDP program attached.
-\item The application is killed (\texttt{kill -9}).
-\item The AF\_XDP socket closes, destroying the XSK buffer pool.
-\item The XDP program is detached (either by the dying process or by
-    the administrator).
-\item \func{igb\_xdp\_setup} is called with \texttt{prog = NULL} and
-    \texttt{need\_reset = true}.
-\item \func{igb\_close} is called, which calls \func{igb\_down}.
-\item \func{igb\_down} sets \flag{\_\_IGB\_DOWN} and eventually calls
-    \func{napi\_synchronize} (step 5 in Section~\ref{sec:igb-down}).
-\item But NAPI is stuck: \func{igb\_clean\_rx\_irq\_zc} keeps returning
-    \texttt{budget} because:
-    \begin{itemize}
-    \item No RX descriptors are completed (NIC has no buffers).
-    \item Buffer refill fails (\texttt{failure = true}).
-    \item The function returns \texttt{budget} on failure.
-    \end{itemize}
-\item \func{napi\_synchronize} waits for \flag{NAPI\_STATE\_SCHED} to
-    clear, but it never does because the poll function never returns
-    \texttt{done < budget}.
-\item \func{igb\_down} hangs at step 5.
-\item Meanwhile, \func{igb\_clean\_tx\_irq} is also not processing TX
-    completions (it returns \texttt{true} immediately due to its own
-    \flag{\_\_IGB\_DOWN} check, but the NAPI poll loop is dominated by
-    the RX side returning \texttt{budget}).
-\item After 5 seconds, the TX watchdog fires because no TX completions
-    have been processed and \texttt{trans\_start} is stale.
-\item \func{igb\_tx\_timeout} schedules a reset, but the reset cannot
-    proceed because \func{igb\_down} is already hung.
-\item The TX queue is permanently stalled.
+\item \textbf{No lost synchronization.}
+    The only purpose of \func{napi\_synchronize} was to wait for the
+    current poll to finish.  \func{napi\_disable} does the same thing,
+    but with the added ability to break stuck polls via
+    \func{napi\_disable\_pending}.
+
+\item \textbf{Safe ordering of \func{igb\_set\_queue\_napi}.}
+    Between the removed \func{napi\_synchronize} and
+    \func{napi\_disable}, \func{igb\_set\_queue\_napi} performs atomic
+    pointer updates (\texttt{rxq->napi = NULL},
+    \texttt{txq->napi = NULL}).  The poll path does not read these
+    pointers; the real resource cleanup (\func{igb\_clean\_all\_tx\_rings},
+    \func{igb\_clean\_all\_rx\_rings}) happens after all
+    \func{napi\_disable} calls complete.
+
+\item \textbf{Breaks the infinite loop.}
+    \func{napi\_disable} sets \flag{NAPI\_STATE\_DISABLE}.
+    \func{\_\_napi\_poll} checks \func{napi\_disable\_pending} after
+    the poll function returns full budget, and calls
+    \func{napi\_complete} to force-clear \flag{NAPI\_STATE\_SCHED}.
+    This breaks the infinite loop that \func{napi\_synchronize} cannot.
+
+\item \textbf{Cross-driver precedent.}
+    Other Intel drivers---\texttt{ixgbe}, \texttt{ice},
+    \texttt{i40e}---use \func{napi\_disable} without a preceding
+    \func{napi\_synchronize} in their down paths.  Only \texttt{igb}
+    and \texttt{igc} carry this pattern.
+
+\item \textbf{No hot-path changes.}
+    The fix touches only the shutdown path (\func{igb\_down}), not the
+    data-plane poll functions.  There is zero performance impact on
+    normal packet processing.
+
+\item \textbf{No new code.}
+    The fix is a deletion, not an addition.  It removes a redundant
+    call, reducing complexity.  There are no new code paths to test or
+    maintain.
 \end{enumerate}
 
-\subsection{The Fix}
+\section{What About \texttt{\_\_IGB\_DOWN} Checks?}
 
-\begin{lstlisting}[caption={Patch 1 diff (igb\_xsk.c)}, style=diffstyle]
+In the v1 patch series, the primary fix was to add an
+\flag{\_\_IGB\_DOWN} check at the top of \func{igb\_clean\_rx\_irq\_zc},
+causing it to return 0 during shutdown and thus breaking the poll loop.
+This approach worked but had a drawback: it added a conditional branch
+to the hot path of every ZC RX poll call.
+
+The v2 approach is superior because it fixes the problem in the
+shutdown path itself.  The poll function's behavior---returning
+\texttt{budget} when the buffer pool is destroyed---is actually valid
+NAPI behavior.  The poll function is saying ``I could do more work if
+given the chance.''  The real bug is that \func{igb\_down} relies on
+\func{napi\_synchronize}, which cannot handle this case.
+
+With \func{napi\_synchronize} removed, \func{napi\_disable} handles
+the stuck poll correctly via its \flag{NAPI\_STATE\_DISABLE} mechanism.
+No hot-path changes are needed.
+
+\section{The Full Failure Sequence---Before and After}
+
+\subsection{Before the Fix}
+
+\begin{enumerate}
+\item AF\_XDP application is killed.
+\item XSK buffer pool is destroyed.
+\item \func{igb\_clean\_rx\_irq\_zc} enters infinite loop
+    (returns \texttt{budget} every cycle).
+\item \func{igb\_xdp\_setup} calls \func{igb\_close} $\to$
+    \func{igb\_down}.
+\item \func{igb\_down} sets \flag{\_\_IGB\_DOWN}, disables HW.
+\item \func{igb\_down} calls \func{napi\_synchronize}---\textbf{hangs
+    forever} (poll never returns \texttt{done < budget}).
+\item 5 seconds later: TX watchdog fires, \func{igb\_tx\_timeout}
+    schedules reset.
+\item Reset cannot proceed: \func{igb\_down} is stuck.
+\item TX queue permanently stalled.
+\end{enumerate}
+
+\subsection{After the Fix}
+
+\begin{enumerate}
+\item AF\_XDP application is killed.
+\item XSK buffer pool is destroyed.
+\item \func{igb\_clean\_rx\_irq\_zc} enters infinite loop.
+\item \func{igb\_xdp\_setup} calls \func{igb\_close} $\to$
+    \func{igb\_down}.
+\item \func{igb\_down} sets \flag{\_\_IGB\_DOWN}, disables HW.
+\item \func{igb\_down} calls \func{napi\_disable}, which sets
+    \flag{NAPI\_STATE\_DISABLE}.
+\item Next poll returns full budget; \func{\_\_napi\_poll} sees
+    \func{napi\_disable\_pending} and calls \func{napi\_complete}.
+\item \flag{NAPI\_STATE\_SCHED} clears; \func{napi\_disable} proceeds.
+\item \func{igb\_down} continues with cleanup.
+\item \func{igb\_open} reinitializes the device.
+\item Interface is back up.  Total disruption: milliseconds.
+\end{enumerate}
+
+
+% ======================================================================
+\chapter{From v1 to v2: Evolution of the Fix}
+\label{ch:evolution}
+% ======================================================================
+
+This chapter documents the evolution of the patch from the original
+3-patch v1 series to the minimal v2 single-line fix.  It is included
+for two reasons: to show how kernel patch review works in practice, and
+because the v1 analysis remains a valid (if more complex) fix for the
+same bug.
+
+\section{The v1 Series: Defense in Depth}
+
+The initial v1 submission consisted of three patches that addressed
+different phases of the failure cascade:
+
+\subsection{Patch 1: \texttt{\_\_IGB\_DOWN} Check in \texttt{igb\_clean\_rx\_irq\_zc()}}
+
+Added an early-exit check to the ZC RX poll function:
+
+\begin{lstlisting}[style=diffstyle]
  int igb_clean_rx_irq_zc(struct igb_q_vector *q_vector,
-                         struct xsk_buff_pool *xsk_pool,
-                         const int budget)
+                          struct xsk_buff_pool *xsk_pool,
+                          const int budget)
  {
      struct igb_adapter *adapter = q_vector->adapter;
      /* ... */
@@ -1311,374 +1379,104 @@ events:
      xdp_prog = READ_ONCE(rx_ring->xdp_prog);
 \end{lstlisting}
 
-The fix adds a single check: if \flag{\_\_IGB\_DOWN} is set, return 0
-immediately.
+This was the primary fix: when \flag{\_\_IGB\_DOWN} is set, return 0
+instead of \texttt{budget}, allowing \func{napi\_complete\_done} to be
+called and unblocking \func{napi\_synchronize}.
 
-\subsection{Why It Is Correct}
+\subsection{Patch 2: \texttt{\_\_IGB\_DOWN} Check in \texttt{igb\_tx\_timeout()}}
 
-\begin{enumerate}
-\item \textbf{Returns 0, not \texttt{budget}.}  Returning 0 means
-    ``no work done, poll is complete.''  In \func{igb\_poll}, this
-    results in \texttt{cleaned = 0 < budget}, so
-    \texttt{clean\_complete} remains \texttt{true}, and
-    \func{napi\_complete\_done} is called.
+Added a guard to prevent spurious reset scheduling during shutdown:
 
-\item \textbf{Matches the existing pattern.}  \func{igb\_clean\_tx\_irq}
-    already has the same check at line 8344, returning \texttt{true}
-    (``TX complete'') when \flag{\_\_IGB\_DOWN} is set.  This patch
-    extends the pattern to the ZC RX path.
-
-\item \textbf{Breaks the infinite loop.}  With this check, once
-    \func{igb\_down} sets \flag{\_\_IGB\_DOWN}, the very next poll
-    cycle will have both TX and RX returning ``done,'' so
-    \func{napi\_complete\_done} is called, \flag{NAPI\_STATE\_SCHED}
-    is cleared, and \func{napi\_synchronize} returns.
-
-\item \textbf{No spurious packet loss.}  When \flag{\_\_IGB\_DOWN} is set,
-    the hardware RX and TX are already disabled.  No new packets will
-    arrive, and any remaining descriptors will be cleaned by
-    \func{igb\_clean\_all\_rx\_rings} in step 7 of \func{igb\_down}.
-    Returning 0 does not lose any packets.
-
-\item \textbf{Safe to call at any point.}  The \texttt{test\_bit} is a
-    plain atomic read with no side effects.  It does not take any locks
-    or modify any state.
-\end{enumerate}
-
-\subsection{What About the Normal (Non-ZC) RX Path?}
-
-The normal RX path (\func{igb\_clean\_rx\_irq}) does \emph{not} have
-this bug because it does not depend on a buffer pool.  When there are
-no packets to process, it returns 0 (no packets cleaned), which is less
-than the budget.  The ZC path is different because it returns
-\texttt{budget} on allocation failure, creating the infinite loop.
-
-
-\section{Patch 2: \texttt{\_\_IGB\_DOWN} Check in \texttt{igb\_tx\_timeout()}}
-\label{sec:patch2}
-
-\subsection{Commit Message}
-
-\begin{Verbatim}[fontsize=\small]
-igb: skip reset in igb_tx_timeout() during XDP transition
-
-When igb_xdp_setup() transitions between XDP and non-XDP mode on
-a running device, it calls igb_close() followed by igb_open().
-During this window the adapter is down and trans_start is stale,
-so the TX watchdog can fire a spurious timeout.
-
-The resulting schedule_work(&adapter->reset_task) races with the
-igb_open() path: the reset task may run while the device is
-being brought back up, or immediately after, causing unexpected
-ring reinitialisation and register writes.
-
-Fix this by checking __IGB_DOWN at the top of igb_tx_timeout().
-\end{Verbatim}
-
-\subsection{Root Cause Analysis}
-
-During the \func{igb\_xdp\_setup} close/open transition:
-
-\begin{enumerate}
-\item \func{igb\_close} calls \func{igb\_down}, which sets
-    \flag{\_\_IGB\_DOWN} and stops all TX queues.
-\item The TX watchdog timer was armed before the close and fires during
-    the transition window (or shortly after).
-\item \func{dev\_watchdog} sees stopped queues with stale
-    \texttt{trans\_start} $\Rightarrow$ calls \func{igb\_tx\_timeout}.
-\item \func{igb\_tx\_timeout} unconditionally schedules
-    \func{igb\_reset\_task} via \func{schedule\_work}.
-\item The reset work item may execute:
-    \begin{itemize}
-    \item While \func{igb\_open} is still in progress (racing with
-        ring setup).
-    \item After \func{igb\_open} completes (causing an unnecessary
-        second reset).
-    \end{itemize}
-\end{enumerate}
-
-Although \func{igb\_reset\_task} does check \flag{\_\_IGB\_DOWN} before
-calling \func{igb\_reinit\_locked}, this check is not sufficient because
-\texttt{reset\_task} is a work item that may not execute until after
-the XDP transition completes (by which time \flag{\_\_IGB\_DOWN} has been
-cleared by \func{igb\_open}).
-
-\subsection{The Fix}
-
-\begin{lstlisting}[caption={Patch 2 diff (igb\_main.c)}, style=diffstyle]
+\begin{lstlisting}[style=diffstyle]
  static void igb_tx_timeout(struct net_device *netdev,
                unsigned int __always_unused txqueue)
  {
      struct igb_adapter *adapter = netdev_priv(netdev);
      struct e1000_hw *hw = &adapter->hw;
 
-@@+    /* Do not schedule a reset if the adapter is+@@
-@@+     * already going down or being reconfigured.+@@
-@@+     */+@@
 @@+    if (test_bit(__IGB_DOWN, &adapter->state))+@@
 @@+        return;+@@
 
      /* Do the reset outside of interrupt context */
      adapter->tx_timeout_count++;
-     /* ... */
-     schedule_work(&adapter->reset_task);
 \end{lstlisting}
 
-\subsection{Why It Is Correct}
+This prevented the TX watchdog from scheduling a reset during the
+\func{igb\_close}/\func{igb\_open} transition window, where stale
+\texttt{trans\_start} timestamps would cause false timeouts.
 
-\begin{enumerate}
-\item \textbf{Prevents spurious reset scheduling.}  When the adapter is
-    down (either shutting down or in the XDP transition window), a TX
-    timeout is expected and not indicative of a hardware problem.
-    Scheduling a reset is pointless: the subsequent \func{igb\_open}
-    will reinitialize everything.
+\subsection{Patch 3: XDP Transition Guards in \texttt{igb\_xdp\_setup()}}
 
-\item \textbf{Does not mask real timeouts.}  Real TX hangs occur when
-    the adapter is \emph{up} and running.  The \flag{\_\_IGB\_DOWN}
-    check only suppresses timeouts during shutdown and reconfiguration,
-    when timeouts are known to be false positives.
-
-\item \textbf{Eliminates the race with \func{igb\_open}.}  By not
-    scheduling the reset work item, we avoid the race where
-    \func{igb\_reset\_task} runs concurrently with or after
-    \func{igb\_open}.
-
-\item \textbf{Consistent with \func{igb\_reset\_task}.}
-    \func{igb\_reset\_task} already checks \flag{\_\_IGB\_DOWN} and bails
-    out.  This patch moves the guard one step earlier---to the point
-    where the work is scheduled---to prevent the work item from being
-    queued at all.
-
-\item \textbf{No counter increment on spurious timeout.}  By returning
-    before \texttt{adapter->tx\_timeout\_count++}, we avoid inflating
-    the timeout counter with false positives, which could confuse
-    monitoring tools.
-\end{enumerate}
-
-\subsection{Why Not Just Rely on \texttt{igb\_reset\_task}'s Check?}
-
-One might ask: \func{igb\_reset\_task} already checks \flag{\_\_IGB\_DOWN}
-and returns early.  Why add another check in \func{igb\_tx\_timeout}?
-
-The answer is \textbf{timing}.  \func{igb\_reset\_task} is a work item
-that runs asynchronously.  Between the time it is scheduled and the
-time it runs, the XDP transition may complete:
-
-\begin{enumerate}
-\item \func{igb\_tx\_timeout} schedules \func{reset\_task} (adapter is
-    down, \flag{\_\_IGB\_DOWN} is set).
-\item \func{igb\_xdp\_setup} completes: \func{igb\_open} clears
-    \flag{\_\_IGB\_DOWN}.
-\item \func{reset\_task} runs: \flag{\_\_IGB\_DOWN} is now clear, so it
-    proceeds with \func{igb\_reinit\_locked}, performing an unnecessary
-    and potentially disruptive reset.
-\end{enumerate}
-
-By checking \flag{\_\_IGB\_DOWN} in \func{igb\_tx\_timeout} itself, we
-prevent the work item from ever being queued during the transition window.
-
-
-\section{Patch 3: XDP Transition Guards in \texttt{igb\_xdp\_setup()}}
-\label{sec:patch3}
-
-\subsection{Commit Message}
-
-\begin{Verbatim}[fontsize=\small]
-igb: add XDP transition guards in igb_xdp_setup()
-
-igb_xdp_setup() calls igb_close() + igb_open() when
-transitioning between XDP and non-XDP mode on a running device.
-This has two issues:
-
-1. When removing an XDP program that has AF_XDP zero-copy
-   sockets, ndo_xsk_wakeup() may be executing concurrently under
-   rcu_read_lock(). If igb_close() tears down the rings while
-   ndo_xsk_wakeup() is still accessing them, it races with the
-   teardown. Add synchronize_rcu() before igb_close() when
-   removing an XDP program.
-
-2. The igb_close()/igb_open() window leaves trans_start stale.
-   Add netif_trans_update() after igb_open() to refresh the
-   timestamp, and cancel_work() to drain any reset_task queued
-   during the window.
-\end{Verbatim}
-
-\subsection{The Three Sub-fixes}
-
-Patch 3 contains three logically distinct fixes, all applied to
-\func{igb\_xdp\_setup}:
-
-\subsubsection{Fix 3a: \texttt{synchronize\_rcu()} Before Close}
-
-\begin{lstlisting}[caption={Fix 3a: RCU synchronization (igb\_main.c)}, style=diffstyle]
-     if (need_reset && running) {
-@@+        if (!prog)+@@
-@@+            /* Wait until ndo_xsk_wakeup completes. */+@@
-@@+            synchronize_rcu();+@@
-         igb_close(dev);
-\end{lstlisting}
-
-\textbf{Root cause:} \func{igb\_xsk\_wakeup} is called under
-\texttt{rcu\_read\_lock()} by the AF\_XDP core.  When removing an XDP
-program (\texttt{prog = NULL}), any in-flight \func{igb\_xsk\_wakeup}
-calls may still be accessing the adapter's rings, interrupt registers,
-and NAPI state.  If \func{igb\_close} tears down these resources while
-\func{igb\_xsk\_wakeup} is running, we get a use-after-free or register
-access on disabled hardware.
-
-\textbf{Why the fix is correct:}
-
+Three sub-fixes in the XDP setup path:
 \begin{itemize}
-\item \func{synchronize\_rcu} waits for all existing RCU read-side
-    critical sections to complete.  Since \func{igb\_xsk\_wakeup} runs
-    under \texttt{rcu\_read\_lock()}, this ensures all in-flight wakeup
-    calls have returned before we proceed to \func{igb\_close}.
-\item The condition \texttt{!prog} ensures we only synchronize when
-    \emph{removing} an XDP program.  When \emph{adding} a program, there
-    are no AF\_XDP sockets yet (you cannot bind a ZC socket without an
-    XDP program), so the race does not exist.
-\item \func{synchronize\_rcu} may sleep, but \func{igb\_xdp\_setup} is
-    called from process context (under RTNL lock), so sleeping is safe.
+\item \func{synchronize\_rcu} before \func{igb\_close} to drain
+    in-flight \func{igb\_xsk\_wakeup} calls.
+\item \func{netif\_trans\_update} after \func{igb\_open} to refresh
+    stale \texttt{trans\_start} timestamps.
+\item \func{cancel\_work} to drain any stale \func{reset\_task}
+    work items queued during the transition.
 \end{itemize}
 
-\subsubsection{Fix 3b: \texttt{netif\_trans\_update()} After Open}
+\section{Maciej Fijalkowski's Insight}
 
-\begin{lstlisting}[caption={Fix 3b: Timestamp refresh (igb\_main.c)}, style=diffstyle]
-     if (running)
-         igb_open(dev);
+After v1 was submitted to the intel-wired-lan mailing list, Intel
+engineer Maciej Fijalkowski
+reviewed the series and suggested a fundamentally different approach.
 
-@@+    if (need_reset && running) {+@@
-@@+        netif_trans_update(dev);+@@
-\end{lstlisting}
+His key observation: the v1 patches were treating the symptoms (stuck
+poll loop, spurious watchdog, race conditions) rather than the root
+cause.  The real problem was the redundant \func{napi\_synchronize}
+call that runs before \func{napi\_disable}.  Since \func{napi\_disable}
+already provides all the synchronization guarantees of
+\func{napi\_synchronize} plus the ability to break stuck polls, the
+\func{napi\_synchronize} call is not just redundant---it is actively
+harmful in the AF\_XDP teardown case.
 
-\textbf{Root cause:} After \func{igb\_open} completes, the TX queues
-are started but \texttt{trans\_start} still has the stale value from
-before \func{igb\_close}.  If the watchdog timer fires before the next
-actual transmission, it sees the stale timestamp and triggers a false
-timeout.
+Removing \func{napi\_synchronize} makes all three v1 patches
+unnecessary:
 
-\textbf{Why the fix is correct:}
-
-\begin{itemize}
-\item \func{netif\_trans\_update} sets \texttt{trans\_start} on TX
-    queue 0 to the current \texttt{jiffies}.  This prevents the watchdog
-    from seeing a stale timestamp.
-\item For the I210/I211 (which typically has a single TX queue), updating
-    queue 0 is sufficient.
-\item The update happens after \func{igb\_open}, so the TX queue is
-    already started and the timestamp is meaningful.
-\end{itemize}
-
-\subsubsection{Fix 3c: \texttt{cancel\_work(\&adapter->reset\_task)}}
-
-\begin{lstlisting}[caption={Fix 3c: Cancel stale reset work (igb\_main.c)}, style=diffstyle]
-@@+        cancel_work(&adapter->reset_task);+@@
-@@+    }+@@
-
-     return 0;
- }
-\end{lstlisting}
-
-\textbf{Root cause:} Even with Patch~2's guard in \func{igb\_tx\_timeout},
-there is a small window where a timeout could fire and schedule a
-\func{reset\_task} before the \flag{\_\_IGB\_DOWN} bit is checked.  Or a
-timeout could have been scheduled from a previous event.  This stale
-work item would run after \func{igb\_open} and cause an unnecessary
-reset.
-
-\textbf{Why the fix is correct:}
-
-\begin{itemize}
-\item \func{cancel\_work} (a variant of \func{cancel\_work\_sync})
-    ensures that any queued \func{reset\_task} is cancelled and, if it
-    is currently executing, waits for it to complete.
-\item This is a belt-and-suspenders approach: Patch~2 prevents most
-    spurious scheduling, and this \func{cancel\_work} catches anything
-    that slipped through the cracks.
-\item Placing it after \func{igb\_open} ensures the device is fully up
-    before we drain the work queue, so we don't accidentally cancel a
-    legitimate reset.
-\end{itemize}
-
-\section{How the Three Patches Work Together}
-
-The three patches form a defense-in-depth strategy against the
-close/open transition bugs:
-
-\begin{figure}[H]
+\begin{table}[H]
 \centering
-\begin{tikzpicture}[
-    phase/.style={draw, fill=gray!10, rounded corners, minimum width=11cm,
-                  minimum height=1cm, font=\small},
-    fix/.style={draw, fill=green!15, rounded corners, minimum width=5cm,
-                minimum height=0.8cm, font=\small},
-    arr/.style={-{Stealth[length=2.5mm]}, thick},
-    node distance=0.6cm
-]
-\node[phase] (p0) {\textbf{Phase 0:} AF\_XDP app dies, XDP program being removed};
-\node[fix, below=of p0] (f3a)
-    {\textbf{Patch 3a:} synchronize\_rcu() --- drain wakeup calls};
-\node[phase, below=of f3a] (p1) {\textbf{Phase 1:} igb\_close() / igb\_down()};
-\node[fix, below=of p1] (f1)
-    {\textbf{Patch 1:} \_\_IGB\_DOWN check in ZC RX --- break poll loop};
-\node[phase, below=of f1] (p2) {\textbf{Phase 2:} TX watchdog fires (stale trans\_start)};
-\node[fix, below=of p2] (f2)
-    {\textbf{Patch 2:} \_\_IGB\_DOWN check in tx\_timeout --- skip reset};
-\node[phase, below=of f2] (p3) {\textbf{Phase 3:} igb\_open() completes};
-\node[fix, below=of p3] (f3bc)
-    {\textbf{Patch 3b+3c:} netif\_trans\_update + cancel\_work};
+\begin{tabular}{lp{8cm}}
+\toprule
+\textbf{v1 Patch} & \textbf{Why v2 Makes It Unnecessary} \\
+\midrule
+\texttt{\_\_IGB\_DOWN} in ZC RX &
+    Without \func{napi\_synchronize}, \func{igb\_down} never hangs.
+    The stuck poll loop is broken by \func{napi\_disable} via
+    \flag{NAPI\_STATE\_DISABLE}.  \\
+\texttt{\_\_IGB\_DOWN} in tx\_timeout &
+    Since \func{igb\_down} completes quickly, the TX watchdog never
+    fires.  No spurious reset to suppress.  \\
+XDP transition guards &
+    The close/open window is now short enough that the stale timestamp
+    problem and reset-task race do not manifest.  \\
+\bottomrule
+\end{tabular}
+\caption{Why v2 supersedes all three v1 patches.}
+\end{table}
 
-\draw[arr] (p0) -- (f3a);
-\draw[arr] (f3a) -- (p1);
-\draw[arr] (p1) -- (f1);
-\draw[arr] (f1) -- (p2);
-\draw[arr] (p2) -- (f2);
-\draw[arr] (f2) -- (p3);
-\draw[arr] (p3) -- (f3bc);
-\end{tikzpicture}
-\caption{The three patches address different phases of the XDP transition.}
-\label{fig:patch-phases}
-\end{figure}
-
-\begin{description}[style=nextline]
-\item[Patch 1 (the critical fix)]
-    Breaks the infinite NAPI poll loop that causes \func{igb\_down} to
-    hang.  Without this patch, nothing else matters because the driver
-    is stuck forever.
-
-\item[Patch 2 (secondary defense)]
-    Prevents the TX watchdog from scheduling a spurious reset during
-    the transition.  This is important even with Patch~1 because the
-    watchdog can still fire due to the stale \texttt{trans\_start} during
-    the close/open window.
-
-\item[Patch 3 (transition hardening)]
-    Addresses three remaining race conditions:
-    \begin{itemize}
-    \item RCU synchronization prevents use-after-free in
-        \func{igb\_xsk\_wakeup}.
-    \item Timestamp refresh prevents false timeouts after the transition.
-    \item Work cancellation catches any stale reset work items.
-    \end{itemize}
-\end{description}
-
-\section{Testing}
-
-The patch series was tested on an Intel I210 controller with the
-following scenarios:
+\section{Lessons Learned}
 
 \begin{enumerate}
-\item \textbf{Attach XDP program, run AF\_XDP app, kill -9.}
-    Before patches: permanent TX stall, requires reboot.
-    After patches: clean recovery, interface returns to normal operation.
+\item \textbf{Look for the root cause, not the symptoms.}  The v1
+    series was a correct fix but addressed three symptoms of a single
+    root cause.  The v2 fix addresses the root cause directly.
 
-\item \textbf{Detach XDP program while AF\_XDP is running.}
-    Before patches: TX stall and/or kernel oops.
-    After patches: clean recovery.
+\item \textbf{Understand the framework before patching the driver.}
+    The key insight---that \func{napi\_disable} handles stuck polls via
+    \func{napi\_disable\_pending}---required understanding the NAPI
+    core in \file{net/core/dev.c}, not just the igb driver.
 
-\item \textbf{Repeated attach/detach cycles.}
-    Before patches: intermittent stalls and timeouts.
-    After patches: stable operation across hundreds of cycles.
+\item \textbf{Fewer lines of change is almost always better.}  The v1
+    series added 25 lines of new code across two files.  The v2 fix
+    removes 1 line.  Simpler patches are easier to review, less likely
+    to introduce regressions, and easier to backport to stable kernels.
+
+\item \textbf{Cross-driver comparison is revealing.}  Observing that
+    \texttt{ixgbe}, \texttt{ice}, and \texttt{i40e} all use
+    \func{napi\_disable} without \func{napi\_synchronize} confirmed
+    that the \func{napi\_synchronize} call was not load-bearing.
 \end{enumerate}
 
 
@@ -1692,228 +1490,79 @@ following scenarios:
 \label{app:patches}
 % ======================================================================
 
-This appendix contains the verbatim patch files as they would be
-submitted to the Linux kernel mailing list.
+This appendix contains the verbatim v2 patch as submitted to the Linux
+kernel mailing list.
 
-\section{Patch 0/3: Cover Letter}
-
-\begin{Verbatim}[fontsize=\scriptsize, frame=single]
-From: Alex Dvoretsky <advoretsky@gmail.com>
-Date: Sat, 14 Feb 2026 23:11:59 +0100
-Subject: [PATCH net 0/3] igb: fix TX queue stall on XDP program
- removal with AF_XDP zero-copy
-
-Killing an AF_XDP zero-copy application while the XDP program is still
-attached causes a permanent TX queue 0 stall on igb. The interface
-becomes unresponsive (no ping, no SSH) and requires a reboot or
-module reload to recover.
-
-Root cause: igb_clean_rx_irq_zc() has no __IGB_DOWN check, so when the
-XSK buffer pool is destroyed (process dies) but NAPI keeps polling, the
-function returns budget every time. This prevents napi_complete_done()
-from signaling completion, which blocks napi_synchronize() in igb_down()
-indefinitely. The 5-second TX watchdog then fires because TX completions
-are not processed while NAPI is stuck.
-
-The series has three patches:
-
-1. Add __IGB_DOWN check in igb_clean_rx_irq_zc() -- breaks the infinite
-   NAPI poll loop, matching the pattern in igb_clean_tx_irq().
-
-2. Add __IGB_DOWN check in igb_tx_timeout() -- prevents spurious
-   reset_task scheduling during the igb_close()/igb_open() window in
-   XDP transitions.
-
-3. Add RCU synchronization and TX watchdog guards in igb_xdp_setup() --
-   ensures ndo_xsk_wakeup() completes before teardown and prevents
-   false TX timeouts from stale trans_start.
-
-Tested on Intel I210 (igb) with AF_XDP zero-copy sockets:
-- Attach XDP program, run AF_XDP app, kill -9 -> no TX stall
-- Detach XDP program while AF_XDP is running -> clean recovery
-- Repeated attach/detach cycles -> stable
-
-Alex Dvoretsky (3):
-  igb: check __IGB_DOWN in igb_clean_rx_irq_zc()
-  igb: skip reset in igb_tx_timeout() during XDP transition
-  igb: add XDP transition guards in igb_xdp_setup()
-
- drivers/net/ethernet/intel/igb/igb_main.c | 22 ++++++++++++++++++++++
- drivers/net/ethernet/intel/igb/igb_xsk.c  |  3 +++
- 2 files changed, 25 insertions(+)
-\end{Verbatim}
-
-\section{Patch 1/3: \texttt{igb\_clean\_rx\_irq\_zc} \texttt{\_\_IGB\_DOWN} Check}
+\section{\texttt{[PATCH net v2] igb: remove napi\_synchronize() in igb\_down()}}
 
 \begin{Verbatim}[fontsize=\scriptsize, frame=single]
 From: Alex Dvoretsky <advoretsky@gmail.com>
-Date: Sat, 14 Feb 2026 23:09:31 +0100
-Subject: [PATCH net 1/3] igb: check __IGB_DOWN in igb_clean_rx_irq_zc()
+Date: Tue, 11 Mar 2026 19:00:00 +0100
+Subject: [PATCH net v2] igb: remove napi_synchronize() in igb_down()
 
-When an AF_XDP zero-copy application terminates abruptly (e.g.,
-kill -9), the XSK buffer pool is destroyed but NAPI polling continues.
-igb_clean_rx_irq_zc() keeps returning budget (no descriptors, no
-buffers to allocate, xsk_buff_alloc() returns NULL) which makes
-napi_complete_done() re-arm the poll indefinitely.
+When an AF_XDP zero-copy application terminates abruptly (e.g., kill -9),
+the XSK buffer pool is destroyed but NAPI polling continues.
+igb_clean_rx_irq_zc() repeatedly returns the full budget, preventing
+napi_complete_done() from clearing NAPI_STATE_SCHED.
 
-Meanwhile, igb_down() -> napi_synchronize() waits for a NAPI poll cycle
-that signals completion with done < budget -- which never happens. This
-blocks igb_down() forever, and the 5-second TX watchdog fires because
-no TX completions are processed while NAPI is stuck. Since igb_down()
-never finishes, igb_up() is never called, and the TX queue remains
-permanently stalled.
+igb_down() calls napi_synchronize() before napi_disable() for each queue
+vector. napi_synchronize() spins waiting for NAPI_STATE_SCHED to clear,
+which never happens. igb_down() blocks indefinitely, the TX watchdog
+fires, and the TX queue remains permanently stalled.
 
-Fix this by adding an __IGB_DOWN check at the top of
-igb_clean_rx_irq_zc(), returning 0 immediately when the adapter is
-going down. This allows napi_synchronize() in igb_down() to complete,
-matching the pattern already used in igb_clean_tx_irq().
+napi_disable() already handles this correctly: it sets NAPI_STATE_DISABLE.
+After a full-budget poll, __napi_poll() checks napi_disable_pending(). If
+set, it forces completion and clears NAPI_STATE_SCHED, breaking the loop
+that napi_synchronize() cannot.
+
+napi_synchronize() was added in commit 41f149a285da ("igb: Fix possible
+panic caused by Rx traffic arrival while interface is down").
+napi_disable() provides stronger guarantees: it prevents further
+scheduling and waits for any active poll to exit.
+Other Intel drivers (ixgbe, ice, i40e) use napi_disable() without a
+preceding napi_synchronize() in their down paths.
+
+Remove redundant napi_synchronize() call.
 
 Fixes: 2c6196013f84 ("igb: Add AF_XDP zero-copy Rx support")
 Cc: stable@vger.kernel.org
 Signed-off-by: Alex Dvoretsky <advoretsky@gmail.com>
 ---
- drivers/net/ethernet/intel/igb/igb_xsk.c | 3 +++
- 1 file changed, 3 insertions(+)
+Thanks for the suggestion, Maciej. I tested removing napi_synchronize()
+and it fixes the issue cleanly -- napi_disable() handles the stuck poll
+via NAPI_STATE_DISABLE without needing any hot-path changes.
 
-diff --git a/drivers/net/ethernet/intel/igb/igb_xsk.c
-             b/drivers/net/ethernet/intel/igb/igb_xsk.c
-index 30ce5fbb5..ca4aa4d93 100644
---- a/drivers/net/ethernet/intel/igb/igb_xsk.c
-+++ b/drivers/net/ethernet/intel/igb/igb_xsk.c
-@@ -351,6 +351,9 @@ int igb_clean_rx_irq_zc(struct igb_q_vector *q_vector,
- 	u16 entries_to_alloc;
- 	struct sk_buff *skb;
+v2:
+  - Replaced 3-patch series with single napi_synchronize() removal,
+    per Maciej Fijalkowski's suggestion. napi_disable() handles the
+    stuck NAPI poll via NAPI_STATE_DISABLE, making the __IGB_DOWN
+    checks in igb_clean_rx_irq_zc() and igb_tx_timeout(), and the
+    transition guards in igb_xdp_setup(), all unnecessary.
+  - Tested on Intel I210 (igb) with AF_XDP zero-copy: full E2E
+    traffic suite, graceful shutdown, and 5x kill-9 stress cycles.
+    Zero tx_timeout events.
 
-+	if (test_bit(__IGB_DOWN, &adapter->state))
-+		return 0;
-+
- 	/* xdp_prog cannot be NULL in the ZC path */
- 	xdp_prog = READ_ONCE(rx_ring->xdp_prog);
-\end{Verbatim}
-
-\section{Patch 2/3: \texttt{igb\_tx\_timeout} \texttt{\_\_IGB\_DOWN} Check}
-
-\begin{Verbatim}[fontsize=\scriptsize, frame=single]
-From: Alex Dvoretsky <advoretsky@gmail.com>
-Date: Sat, 14 Feb 2026 23:09:47 +0100
-Subject: [PATCH net 2/3] igb: skip reset in igb_tx_timeout() during
- XDP transition
-
-When igb_xdp_setup() transitions between XDP and non-XDP mode on a
-running device, it calls igb_close() followed by igb_open(). During
-this window the adapter is down and trans_start is stale, so the TX
-watchdog can fire a spurious timeout.
-
-The resulting schedule_work(&adapter->reset_task) races with the
-igb_open() path: the reset task may run while the device is being
-brought back up, or immediately after, causing unexpected ring
-reinitialisation and register writes.
-
-Fix this by checking __IGB_DOWN at the top of igb_tx_timeout(). If the
-adapter is down (either during normal close or during the XDP close/open
-transition), there is nothing useful a reset can do -- the subsequent
-igb_open() will reinitialise everything.
-
-Fixes: 9cbc948b5a20 ("igb: add XDP support")
-Cc: stable@vger.kernel.org
-Signed-off-by: Alex Dvoretsky <advoretsky@gmail.com>
----
- drivers/net/ethernet/intel/igb/igb_main.c | 9 +++++++++
- 1 file changed, 9 insertions(+)
+ drivers/net/ethernet/intel/igb/igb_main.c | 1 -
+ 1 file changed, 1 deletion(-)
 
 diff --git a/drivers/net/ethernet/intel/igb/igb_main.c
-             b/drivers/net/ethernet/intel/igb/igb_main.c
-index dbea37269..e82f7184f 100644
+         b/drivers/net/ethernet/intel/igb/igb_main.c
+index 12e8e30d8a2d..a1b3c5e4f7d2 100644
 --- a/drivers/net/ethernet/intel/igb/igb_main.c
 +++ b/drivers/net/ethernet/intel/igb/igb_main.c
-@@ -6652,6 +6652,15 @@ static void igb_tx_timeout(struct net_device
-     *netdev, unsigned int __always_unus
- 	struct igb_adapter *adapter = netdev_priv(netdev);
- 	struct e1000_hw *hw = &adapter->hw;
+@@ -2203,7 +2203,6 @@ void igb_down(struct igb_adapter *adapter)
 
-+	/* Do not schedule a reset if the adapter is already going
-+	 * down or being reconfigured (e.g., XDP program transition
-+	 * via igb_close/igb_open). The stale trans_start from before
-+	 * the close will trigger a spurious timeout that resolves
-+	 * once igb_open() completes.
-+	 */
-+	if (test_bit(__IGB_DOWN, &adapter->state))
-+		return;
-+
- 	/* Do the reset outside of interrupt context */
- 	adapter->tx_timeout_count++;
-\end{Verbatim}
-
-\section{Patch 3/3: XDP Transition Guards in \texttt{igb\_xdp\_setup}}
-
-\begin{Verbatim}[fontsize=\scriptsize, frame=single]
-From: Alex Dvoretsky <advoretsky@gmail.com>
-Date: Sat, 14 Feb 2026 23:11:25 +0100
-Subject: [PATCH net 3/3] igb: add XDP transition guards in
- igb_xdp_setup()
-
-igb_xdp_setup() calls igb_close() + igb_open() when transitioning
-between XDP and non-XDP mode on a running device. This has two issues:
-
-1. When removing an XDP program that has AF_XDP zero-copy sockets,
-   ndo_xsk_wakeup() may be executing concurrently under rcu_read_lock().
-   If igb_close() tears down the rings while ndo_xsk_wakeup() is still
-   accessing them, it races with the teardown. Add synchronize_rcu()
-   before igb_close() when removing an XDP program to ensure all
-   in-flight ndo_xsk_wakeup() calls complete first.
-
-2. The igb_close()/igb_open() window leaves trans_start stale from
-   before the close: the TX watchdog can fire a spurious timeout and
-   queue a reset_task that races with igb_open(). Add
-   netif_trans_update() after igb_open() to refresh the timestamp, and
-   cancel_work() to drain any reset_task queued during the window.
-
-Fixes: 9cbc948b5a20 ("igb: add XDP support")
-Cc: stable@vger.kernel.org
-Signed-off-by: Alex Dvoretsky <advoretsky@gmail.com>
----
- drivers/net/ethernet/intel/igb/igb_main.c | 13 +++++++++++++
- 1 file changed, 13 insertions(+)
-
-diff --git a/drivers/net/ethernet/intel/igb/igb_main.c
-             b/drivers/net/ethernet/intel/igb/igb_main.c
-index e82f7184f..54a47a10d 100644
---- a/drivers/net/ethernet/intel/igb/igb_main.c
-+++ b/drivers/net/ethernet/intel/igb/igb_main.c
-@@ -2913,6 +2913,9 @@ static int igb_xdp_setup(struct net_device
-     *dev, struct netdev_bpf *bpf)
-
- 	/* device is up and bpf is added/removed */
- 	if (need_reset && running) {
-+		if (!prog)
-+			/* Wait until ndo_xsk_wakeup completes. */
-+			synchronize_rcu();
- 		igb_close(dev);
- 	} else {
- 		for (i = 0; i < adapter->num_rx_queues; i++)
-@@ -2936,6 +2939,16 @@ static int igb_xdp_setup(struct net_device
-     *dev, struct netdev_bpf *bpf)
- 	if (running)
- 		igb_open(dev);
-
-+	/* Refresh trans_start to prevent the TX watchdog from
-+	 * firing on a stale timestamp from before igb_close().
-+	 * Cancel any reset_task that igb_tx_timeout() may have
-+	 * queued between igb_close() setting __IGB_DOWN and the
-+	 * actual napi_synchronize() completion.
-+	 */
-+	if (need_reset && running) {
-+		netif_trans_update(dev);
-+		cancel_work(&adapter->reset_task);
-+	}
-+
- 	return 0;
- }
+ 	for (i = 0; i < adapter->num_q_vectors; i++) {
+ 		if (adapter->q_vector[i]) {
+-			napi_synchronize(&adapter->q_vector[i]->napi);
+ 			igb_set_queue_napi(adapter, i, NULL);
+ 			napi_disable(&adapter->q_vector[i]->napi);
+ 		}
 \end{Verbatim}
 
 
 % ======================================================================
-\chapter{How to Apply and Test the Patches}
+\chapter{How to Apply and Test the Patch}
 \label{app:apply-test}
 % ======================================================================
 
@@ -1929,21 +1578,13 @@ index e82f7184f..54a47a10d 100644
 \item A simple XDP program (e.g., \texttt{xdp\_pass}).
 \end{itemize}
 
-\section{Applying the Patches}
+\section{Applying the Patch}
 
 Navigate to the kernel source directory and apply:
 
 \begin{lstlisting}[style=shellstyle]
 $ cd ~/linux
-$ git am ~/patches/0001-igb-check-__IGB_DOWN-in-igb_clean_rx_irq_zc.patch
-$ git am ~/patches/0002-igb-skip-reset-in-igb_tx_timeout-during-XDP-transiti.patch
-$ git am ~/patches/0003-igb-add-XDP-transition-guards-in-igb_xdp_setup.patch
-\end{lstlisting}
-
-Alternatively, apply all three at once:
-
-\begin{lstlisting}[style=shellstyle]
-$ git am ~/patches/000*.patch
+$ git am ~/patches/0001-igb-remove-napi_synchronize-in-igb_down.patch
 \end{lstlisting}
 
 \section{Building and Installing}
@@ -1998,10 +1639,11 @@ $ sudo ip link set dev enp8s0 xdp off
 $ ping -c 3 <gateway_ip>
 \end{lstlisting}
 
-\subsection{Test 3: Repeated Transitions}
+\subsection{Test 3: Kill-9 Stress Test (5 Cycles)}
 
 \begin{lstlisting}[style=shellstyle]
-for i in $(seq 1 100); do
+for i in $(seq 1 5); do
+    echo "=== Stress cycle $i ==="
     sudo ip link set dev enp8s0 xdp obj xdp_pass.o sec xdp
     sudo xdpsock -i enp8s0 -q 0 -z &
     PID=$!
@@ -2009,7 +1651,7 @@ for i in $(seq 1 100); do
     sudo kill -9 $PID
     wait $PID 2>/dev/null
     sudo ip link set dev enp8s0 xdp off 2>/dev/null
-    sleep 0.1
+    sleep 0.5
 done
 
 # Verify: interface stable after all iterations
@@ -2023,11 +1665,11 @@ $ ethtool -S enp8s0 | grep tx_timeout
 \centering
 \begin{tabular}{lcc}
 \toprule
-\textbf{Test} & \textbf{Before Patches} & \textbf{After Patches} \\
+\textbf{Test} & \textbf{Before Patch} & \textbf{After Patch} \\
 \midrule
-Kill AF\_XDP app        & TX stall, reboot needed & Clean recovery \\
-Remove XDP while ZC     & TX stall or oops        & Clean recovery \\
-Repeated transitions    & Intermittent stalls      & Stable \\
+Kill AF\_XDP app          & TX stall, reboot needed & Clean recovery \\
+Remove XDP while ZC       & TX stall or oops        & Clean recovery \\
+5x kill-9 stress cycles   & Consistent stalls       & Zero tx\_timeout events \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -2044,16 +1686,14 @@ Linux kernel patches must follow a strict format.  The
 \texttt{git format-patch} command generates properly formatted patches:
 
 \begin{lstlisting}[style=shellstyle]
-$ git format-patch -3 --cover-letter -v1 -o outgoing/
+$ git format-patch -1 -v2 -o outgoing/
 \end{lstlisting}
 
-This creates:
-\begin{itemize}
-\item \texttt{v1-0000-cover-letter.patch} --- edit the subject and body.
-\item \texttt{v1-0001-igb-check-\_\_IGB\_DOWN-in-igb\_clean\_rx\_irq\_zc.patch}
-\item \texttt{v1-0002-igb-skip-reset-...patch}
-\item \texttt{v1-0003-igb-add-XDP-transition-guards-...patch}
-\end{itemize}
+This creates a single patch file:
+\texttt{v2-0001-igb-remove-napi\_synchronize-in-igb\_down.patch}.
+
+For a multi-patch series, use \texttt{-N --cover-letter} where $N$ is
+the number of commits.
 
 \section{Running \texttt{checkpatch.pl}}
 
@@ -2077,7 +1717,7 @@ Use \texttt{get\_maintainer.pl} to find the correct mailing lists and
 maintainers:
 
 \begin{lstlisting}[style=shellstyle]
-$ ./scripts/get_maintainer.pl outgoing/v1-0001-*.patch
+$ ./scripts/get_maintainer.pl outgoing/v2-0001-*.patch
 Tony Nguyen <anthony.l.nguyen@intel.com> (maintainer)
 intel-wired-lan@lists.osuosl.org (list)
 netdev@vger.kernel.org (list)
@@ -2089,15 +1729,21 @@ netdev@vger.kernel.org (list)
 $ git send-email \
     --to intel-wired-lan@lists.osuosl.org \
     --cc netdev@vger.kernel.org \
+    --cc maciej.fijalkowski@intel.com \
+    --cc aleksandr.loktionov@intel.com \
     --cc anthony.l.nguyen@intel.com \
-    outgoing/v1-*.patch
+    --in-reply-to='<original-v1-message-id>' \
+    --thread \
+    outgoing/v2-0001-*.patch
 \end{lstlisting}
 
 Key options:
 \begin{itemize}
 \item \texttt{--to}: primary mailing list (subsystem list).
-\item \texttt{--cc}: secondary lists and individual maintainers.
-\item \texttt{--annotate}: allows editing each email before sending.
+\item \texttt{--cc}: secondary lists, maintainers, and prior reviewers.
+\item \texttt{--in-reply-to}: threads v2 as a reply to the v1
+    discussion.
+\item \texttt{--thread}: ensures proper email threading.
 \end{itemize}
 
 \section{The Review Process}
@@ -2108,8 +1754,8 @@ After submitting:
     robot) to report build/test results.
 \item Maintainers and reviewers will reply on the mailing list with
     comments, questions, or \texttt{Reviewed-by}/\texttt{Acked-by} tags.
-\item Address feedback by sending a \texttt{v2} series with
-    \texttt{git format-patch -v2}.
+\item Address feedback by sending a \texttt{v3} series with
+    \texttt{git format-patch -v3}.
 \item Once accepted, the patches flow through the maintainer's tree
     (e.g., \texttt{intel-wired-lan/net}) into
     \texttt{net.git}, and eventually into Linus's tree.
@@ -2120,13 +1766,7 @@ After submitting:
 The \texttt{Cc: stable@vger.kernel.org} tag in the commit message
 signals that the patch should be backported to stable kernel releases.
 The stable team will pick it up automatically after it lands in
-Linus's tree, or you can request a manual backport via:
-
-\begin{lstlisting}[style=shellstyle]
-$ git send-email --to stable@vger.kernel.org \
-    --in-reply-to=<original-message-id> \
-    outgoing/v1-*.patch
-\end{lstlisting}
+Linus's tree.
 
 % ══════════════════════════════════════════════════════════════════════
 \backmatter
