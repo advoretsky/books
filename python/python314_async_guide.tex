@@ -1,0 +1,1739 @@
+\documentclass[11pt,a4paper,oneside]{book}
+
+% ── Encoding & Fonts ──
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+
+% ── Page layout ──
+\usepackage[margin=2.5cm,top=3cm,bottom=3cm]{geometry}
+
+% ── Colors ──
+\usepackage[dvipsnames,svgnames,x11names]{xcolor}
+
+% Project color palette
+\definecolor{pyblue}{HTML}{306998}
+\definecolor{pyyellow}{HTML}{FFD43B}
+\definecolor{goblue}{HTML}{00ADD8}
+\definecolor{rustred}{HTML}{DEA584}
+\definecolor{javaorange}{HTML}{F89820}
+\definecolor{codebg}{HTML}{F5F5F0}
+\definecolor{warnbg}{HTML}{FFF3CD}
+\definecolor{warnborder}{HTML}{856404}
+\definecolor{dangerbg}{HTML}{F8D7DA}
+\definecolor{dangerborder}{HTML}{721C24}
+\definecolor{infobg}{HTML}{D1ECF1}
+\definecolor{infoborder}{HTML}{0C5460}
+\definecolor{successbg}{HTML}{D4EDDA}
+\definecolor{successborder}{HTML}{155724}
+\definecolor{chapterbg}{HTML}{2B5B84}
+
+% ── Code listings ──
+\usepackage{listings}
+\usepackage{inconsolata}
+
+\lstdefinestyle{python}{
+    language=Python,
+    basicstyle=\ttfamily\small,
+    backgroundcolor=\color{codebg},
+    keywordstyle=\bfseries\color{pyblue},
+    stringstyle=\color{OliveGreen},
+    commentstyle=\itshape\color{Gray},
+    numberstyle=\tiny\color{Gray},
+    numbers=left,
+    numbersep=8pt,
+    frame=l,
+    framerule=2pt,
+    rulecolor=\color{pyblue},
+    breaklines=true,
+    breakatwhitespace=true,
+    showstringspaces=false,
+    tabsize=4,
+    xleftmargin=16pt,
+    framexleftmargin=16pt,
+    aboveskip=12pt,
+    belowskip=8pt,
+    morekeywords={async,await,match,case,TaskGroup,ExceptionGroup},
+}
+
+\lstdefinestyle{go}{
+    language=Go,
+    basicstyle=\ttfamily\small,
+    backgroundcolor=\color{codebg},
+    keywordstyle=\bfseries\color{goblue},
+    stringstyle=\color{OliveGreen},
+    commentstyle=\itshape\color{Gray},
+    frame=l,
+    framerule=2pt,
+    rulecolor=\color{goblue},
+    breaklines=true,
+    showstringspaces=false,
+    tabsize=4,
+    xleftmargin=16pt,
+    framexleftmargin=16pt,
+    aboveskip=12pt,
+    belowskip=8pt,
+}
+
+\lstdefinestyle{rust}{
+    language=C, % approximate
+    basicstyle=\ttfamily\small,
+    backgroundcolor=\color{codebg},
+    keywordstyle=\bfseries\color{BrickRed},
+    stringstyle=\color{OliveGreen},
+    commentstyle=\itshape\color{Gray},
+    frame=l,
+    framerule=2pt,
+    rulecolor=\color{rustred},
+    breaklines=true,
+    showstringspaces=false,
+    tabsize=4,
+    xleftmargin=16pt,
+    framexleftmargin=16pt,
+    aboveskip=12pt,
+    belowskip=8pt,
+    morekeywords={fn,let,mut,async,await,pub,impl,struct,enum,trait,use,mod,tokio,spawn},
+}
+
+\lstdefinestyle{java}{
+    language=Java,
+    basicstyle=\ttfamily\small,
+    backgroundcolor=\color{codebg},
+    keywordstyle=\bfseries\color{javaorange!80!black},
+    stringstyle=\color{OliveGreen},
+    commentstyle=\itshape\color{Gray},
+    frame=l,
+    framerule=2pt,
+    rulecolor=\color{javaorange},
+    breaklines=true,
+    showstringspaces=false,
+    tabsize=4,
+    xleftmargin=16pt,
+    framexleftmargin=16pt,
+    aboveskip=12pt,
+    belowskip=8pt,
+    morekeywords={var,record,sealed,permits,yield},
+}
+
+\lstdefinestyle{toml}{
+    basicstyle=\ttfamily\small,
+    backgroundcolor=\color{codebg},
+    keywordstyle=\bfseries\color{pyblue},
+    stringstyle=\color{OliveGreen},
+    commentstyle=\itshape\color{Gray},
+    frame=l,
+    framerule=2pt,
+    rulecolor=\color{Gray},
+    breaklines=true,
+    showstringspaces=false,
+    tabsize=4,
+    xleftmargin=16pt,
+    framexleftmargin=16pt,
+    aboveskip=12pt,
+    belowskip=8pt,
+}
+
+\lstdefinestyle{shell}{
+    basicstyle=\ttfamily\small,
+    backgroundcolor=\color{codebg},
+    keywordstyle=\bfseries\color{pyblue},
+    frame=l,
+    framerule=2pt,
+    rulecolor=\color{DarkGreen},
+    breaklines=true,
+    showstringspaces=false,
+    xleftmargin=16pt,
+    framexleftmargin=16pt,
+    aboveskip=12pt,
+    belowskip=8pt,
+}
+
+\lstdefinestyle{directory}{
+    basicstyle=\ttfamily\small,
+    backgroundcolor=\color{codebg},
+    frame=single,
+    rulecolor=\color{Gray},
+    breaklines=true,
+    showstringspaces=false,
+    xleftmargin=16pt,
+    framexleftmargin=16pt,
+    aboveskip=12pt,
+    belowskip=8pt,
+}
+
+\lstset{style=python}
+
+% ── Boxes and admonitions ──
+\usepackage[most]{tcolorbox}
+
+\newtcolorbox{warningbox}[1][]{
+    colback=warnbg,
+    colframe=warnborder,
+    coltitle=warnborder,
+    fonttitle=\bfseries,
+    title={Warning},
+    arc=2pt,
+    boxrule=1pt,
+    left=8pt,
+    right=8pt,
+    #1,
+}
+
+\newtcolorbox{dangerbox}[1][]{
+    colback=dangerbg,
+    colframe=dangerborder,
+    coltitle=dangerborder,
+    fonttitle=\bfseries,
+    title={Do NOT},
+    arc=2pt,
+    boxrule=1pt,
+    left=8pt,
+    right=8pt,
+    #1,
+}
+
+\newtcolorbox{infobox}[1][]{
+    colback=infobg,
+    colframe=infoborder,
+    coltitle=infoborder,
+    fonttitle=\bfseries,
+    title={Note},
+    arc=2pt,
+    boxrule=1pt,
+    left=8pt,
+    right=8pt,
+    #1,
+}
+
+\newtcolorbox{successbox}[1][]{
+    colback=successbg,
+    colframe=successborder,
+    coltitle=successborder,
+    fonttitle=\bfseries,
+    title={Best Practice},
+    arc=2pt,
+    boxrule=1pt,
+    left=8pt,
+    right=8pt,
+    #1,
+}
+
+\newtcolorbox{analogybox}[1][]{
+    colback=white,
+    colframe=pyblue!50!black,
+    coltitle=white,
+    colbacktitle=pyblue!70!black,
+    fonttitle=\bfseries\sffamily,
+    title={Cross-Language Analogies},
+    arc=3pt,
+    boxrule=1pt,
+    left=8pt,
+    right=8pt,
+    #1,
+}
+
+\newtcolorbox{migrationbox}[1][]{
+    colback=pyyellow!10!white,
+    colframe=pyyellow!60!black,
+    coltitle=pyyellow!20!black,
+    colbacktitle=pyyellow!80,
+    fonttitle=\bfseries\sffamily,
+    title={Migration from older Python},
+    arc=3pt,
+    boxrule=1pt,
+    left=8pt,
+    right=8pt,
+    #1,
+}
+
+% ── Chapter/section styling ──
+\usepackage{titlesec}
+\usepackage{titletoc}
+
+\titleformat{\chapter}[display]
+    {\normalfont\huge\bfseries\sffamily\color{chapterbg}}
+    {\chaptertitlename\ \thechapter}{20pt}{\Huge}
+\titleformat{\section}
+    {\normalfont\Large\bfseries\sffamily\color{pyblue!80!black}}
+    {\thesection}{1em}{}
+\titleformat{\subsection}
+    {\normalfont\large\bfseries\sffamily\color{pyblue!60!black}}
+    {\thesubsection}{1em}{}
+
+% ── Hyperlinks ──
+\usepackage[
+    colorlinks=true,
+    linkcolor=pyblue!80!black,
+    urlcolor=pyblue,
+    citecolor=pyblue,
+    bookmarks=true,
+    bookmarksnumbered=true,
+    pdfauthor={Project Standards},
+    pdftitle={Python 3.14 Async Backend: A Practical Guide},
+    pdfsubject={asyncio, structured concurrency, Python 3.14},
+]{hyperref}
+
+% ── Tables ──
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+
+% ── Graphics ──
+\usepackage{graphicx}
+
+% ── Header/footer ──
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\sffamily\small\leftmark}
+\fancyhead[R]{\sffamily\small Python 3.14 Async Guide}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\headrule}{\hbox to\headwidth{\color{pyblue}\leaders\hrule height \headrulewidth\hfill}}
+
+% ── Misc ──
+\usepackage{enumitem}
+\setlist{nosep,leftmargin=*}
+
+\newcommand{\py}[1]{\texttt{\color{pyblue}#1}}
+\newcommand{\gocode}[1]{\texttt{\color{goblue}#1}}
+\newcommand{\rustcode}[1]{\texttt{\color{BrickRed}#1}}
+\newcommand{\javacode}[1]{\texttt{\color{javaorange!80!black}#1}}
+\newcommand{\deprecated}[1]{\texttt{\color{red!70!black}\sout{#1}}}
+
+\usepackage[normalem]{ulem} % for \sout
+
+% ════════════════════════════════════════════════════════
+\begin{document}
+
+% ── Title page ──
+\begin{titlepage}
+\begin{center}
+\vspace*{2cm}
+
+{\fontsize{40}{48}\selectfont\bfseries\sffamily\color{chapterbg}
+Python 3.14\\[4pt]
+Async Backend}
+
+\vspace{0.5cm}
+
+{\fontsize{20}{24}\selectfont\sffamily\color{pyblue}
+A Practical Guide}
+
+\vspace{1.5cm}
+
+\rule{0.6\textwidth}{1pt}
+
+\vspace{1.5cm}
+
+{\large\sffamily
+Structured Concurrency, Modern Tooling,\\
+and Production Patterns}
+
+\vspace{2cm}
+
+\begin{tcolorbox}[
+    colback=codebg,
+    colframe=pyblue,
+    width=0.75\textwidth,
+    arc=4pt,
+    boxrule=1.5pt,
+    halign=center,
+]
+{\sffamily\small
+For senior engineers coming from\\[4pt]
+\textcolor{goblue}{\textbf{Go}} $\cdot$
+\textcolor{javaorange}{\textbf{Java/Kotlin}} $\cdot$
+\textcolor{BrickRed}{\textbf{Rust}}\\[4pt]
+who know async basics but are new to Python 3.14}
+\end{tcolorbox}
+
+\vfill
+
+{\small\sffamily\color{Gray} March 2026}
+\end{center}
+\end{titlepage}
+
+% ── TOC ──
+\tableofcontents
+\newpage
+
+% ════════════════════════════════════════════════════════
+\chapter{How Async I/O Works}
+
+Before diving into Python-specific APIs, you need to understand \emph{what async actually does}
+at the operating system level. If you've only used Go (where the runtime hides all of this),
+this chapter fills that gap.
+
+\section{The Problem: One Thread Per Connection}
+
+Traditional blocking I/O assigns one OS thread per connection. When a thread calls
+\texttt{read()} on a socket, the kernel \emph{suspends} that thread until data arrives.
+The thread consumes memory (typically 1--8\,MB of stack) and does nothing while waiting.
+
+At 10,000 concurrent connections, that's 10,000 threads --- tens of gigabytes of memory and
+constant context-switching overhead. This is the \textbf{C10K problem} that async I/O solves.
+
+\begin{analogybox}
+\begin{itemize}
+    \item \textcolor{goblue}{\textbf{Go:}} Goroutines solve the same problem but differently ---
+          they use small stacks ($\sim$4\,KB, growable) and the runtime multiplexes them onto a small
+          pool of OS threads via an M:N scheduler. You write blocking-style code, but it's
+          non-blocking under the hood.
+    \item \textcolor{javaorange}{\textbf{Java 21+:}} Virtual threads (Project Loom) take the Go
+          approach --- lightweight threads scheduled by the JVM. Before Loom, Java used NIO with
+          selectors (the same epoll/kqueue approach Python uses).
+    \item \textcolor{BrickRed}{\textbf{Rust:}} Tokio is an explicit async runtime like Python's
+          asyncio --- \texttt{async/await} with an event loop backed by epoll/kqueue/io\_uring.
+\end{itemize}
+\end{analogybox}
+
+\section{Non-Blocking I/O and I/O Multiplexing}
+
+The solution is two-part:
+
+\begin{enumerate}
+    \item \textbf{Non-blocking sockets.} Set \texttt{O\_NONBLOCK} on a file descriptor. Now
+          \texttt{read()} returns immediately with \texttt{EAGAIN} if no data is available,
+          instead of suspending the thread.
+    \item \textbf{I/O multiplexing.} Ask the kernel: ``tell me when \emph{any} of these
+          file descriptors have data ready.'' One thread monitors thousands of connections.
+\end{enumerate}
+
+The kernel provides several multiplexing APIs, each an evolution of the last:
+
+\begin{center}
+\renewcommand{\arraystretch}{1.3}
+\begin{tcolorbox}[
+    colback=codebg,
+    colframe=pyblue,
+    width=0.98\textwidth,
+    arc=3pt,
+    boxrule=1pt,
+]
+\small
+\begin{tabularx}{\textwidth}{>{\bfseries\ttfamily}l l X}
+\toprule
+API & Platform & How it works \\
+\midrule
+select() & All & Pass a bitmap of fds. Kernel scans all of them. $O(n)$ per call.
+           Limited to 1024 fds. Ancient, slow. \\
+poll() & All & Like select but no fd limit. Still $O(n)$ --- kernel scans the entire list. \\
+epoll & Linux & Register fds once. Kernel maintains an interest list internally and
+         returns \emph{only ready} fds. $O(1)$ amortized per ready fd. \\
+kqueue & macOS/BSD & Equivalent to epoll. Uses a ``changelist'' API. What Python uses on macOS. \\
+io\_uring & Linux 5.1+ & Shared ring buffers between user and kernel space.
+           Zero-copy, zero-syscall batching. The future of Linux async I/O. \\
+IOCP & Windows & Completion-based (vs readiness-based). Kernel tells you when I/O
+       \emph{completed}, not when it's ready. \\
+\bottomrule
+\end{tabularx}
+\end{tcolorbox}
+\end{center}
+
+\begin{infobox}
+Python's \py{asyncio} uses the \textbf{best available backend} automatically:
+\py{epoll} on Linux, \py{kqueue} on macOS/BSD, \py{IOCP} on Windows. You never interact
+with these directly --- the event loop abstracts them via the \py{selectors} module.
+\end{infobox}
+
+\section{The Event Loop: What Actually Happens}
+
+An event loop is conceptually simple --- an infinite loop:
+
+\begin{lstlisting}[style=python,numbers=none]
+while True:
+    ready_fds = epoll.wait()        # block until something is ready
+    for fd, event in ready_fds:
+        callback = registry[fd]
+        callback(fd, event)         # resume the coroutine that was waiting
+\end{lstlisting}
+
+Every \py{await} in your code is, at the lowest level, registering a file descriptor with the
+event loop and yielding control. When the kernel signals that fd is ready, the event loop
+resumes the coroutine that was waiting on it.
+
+\begin{warningbox}
+This is why blocking the event loop is fatal: if your coroutine runs CPU-heavy code
+without yielding, the \texttt{epoll.wait()} call never executes, and \emph{no other
+coroutine} can make progress. There is only one thread running the loop.
+\end{warningbox}
+
+\section{From NIC to Coroutine: The Full I/O Path}
+
+When data arrives on a network socket, here's the complete path on Linux:
+
+\begin{enumerate}
+    \item \textbf{Hard IRQ.} The NIC receives a packet and fires a \emph{hardware interrupt}.
+          The CPU stops what it's doing and runs the NIC driver's interrupt handler. This
+          handler is minimal --- it acknowledges the interrupt and schedules a soft IRQ.
+    \item \textbf{Soft IRQ (NET\_RX\_SOFTIRQ).} The kernel's network stack processes the packet:
+          IP reassembly, TCP state machine, checksum validation. Data is placed into the
+          \emph{socket receive buffer} (\texttt{sk\_buff}).
+    \item \textbf{epoll notification.} The kernel checks if any \texttt{epoll} instance is watching
+          this socket's fd. If so, it adds the fd to the epoll's ready list and wakes up the thread
+          blocked on \texttt{epoll\_wait()}.
+    \item \textbf{Event loop dispatch.} Python's event loop returns from \texttt{epoll\_wait()},
+          finds the ready fd, and invokes the callback registered for it.
+    \item \textbf{Coroutine resumes.} The callback resumes the coroutine that was suspended at
+          an \py{await} expression. Your application code runs until it hits the next \py{await}.
+\end{enumerate}
+
+\begin{analogybox}
+\begin{itemize}
+    \item \textcolor{goblue}{\textbf{Go:}} The same hard IRQ $\to$ soft IRQ $\to$ socket buffer
+          chain happens, but Go's \texttt{netpoller} (which uses epoll internally) is integrated
+          into the goroutine scheduler. When a goroutine does \texttt{conn.Read()}, the runtime
+          registers the fd and parks the goroutine. The fd-ready notification unparks it ---
+          same mechanism, different abstraction level.
+    \item \textcolor{BrickRed}{\textbf{Rust:}} Tokio's reactor uses \texttt{mio} (a thin wrapper
+          over epoll/kqueue). The \texttt{.await} on a \texttt{TcpStream::read()} suspends the
+          future. When mio reports readiness, the future is polled again --- identical flow.
+\end{itemize}
+\end{analogybox}
+
+\section{How Async Database Drivers Work: asyncpg}
+
+You might wonder: ``the database is just sending bytes over TCP --- what makes a driver async
+vs sync?'' The answer is entirely in \emph{how it waits for those bytes}.
+
+\subsection{Sync driver: psycopg2}
+
+psycopg2 uses \texttt{libpq} (PostgreSQL's C client library), which does \emph{blocking}
+socket I/O internally:
+
+\begin{lstlisting}[style=python,numbers=none]
+# Pseudocode of what happens inside psycopg2
+sock.send(query_message)     # blocks until sent
+response = sock.recv(65536)  # blocks until data arrives (!!!)
+return parse(response)
+\end{lstlisting}
+
+The \texttt{recv()} call suspends the thread. If you call this from an async function, you've
+just blocked the event loop.
+
+\subsection{Async driver: asyncpg}
+
+asyncpg implements the PostgreSQL wire protocol \emph{from scratch} in
+Cython --- it doesn't use libpq at all. Instead, it uses non-blocking sockets registered
+with the event loop:
+
+\begin{lstlisting}[style=python,numbers=none]
+# Pseudocode of what asyncpg does
+sock.setblocking(False)
+sock.send(query_message)            # non-blocking, returns immediately
+# Register fd with event loop and suspend the coroutine
+await loop.sock_recv(sock, 65536)   # yields control, resumes on data
+return parse(response)
+\end{lstlisting}
+
+The key difference: \py{loop.sock\_recv()} registers the socket's file descriptor with epoll,
+\emph{yields control back to the event loop}, and only resumes when data arrives. While
+waiting for PostgreSQL's response, other coroutines (handling other requests) run freely.
+
+\subsection{PostgreSQL Wire Protocol}
+
+PostgreSQL uses a binary message-based protocol over TCP. A simplified exchange:
+
+\begin{lstlisting}[style=shell,numbers=none]
+Client -> Server:  Query('SELECT * FROM users WHERE id = 1')
+Server -> Client:  RowDescription(columns=['id','name','email'])
+Server -> Client:  DataRow([1, 'Alice', 'alice@example.com'])
+Server -> Client:  CommandComplete('SELECT 1')
+Server -> Client:  ReadyForQuery(status='idle')
+\end{lstlisting}
+
+Each message has a type byte, a 4-byte length, and a payload. asyncpg parses these
+incrementally as bytes arrive on the non-blocking socket. The protocol itself is
+inherently asynchronous --- the server streams rows as they're produced, and the
+client can process them as they arrive.
+
+\begin{infobox}
+PostgreSQL also supports an \textbf{extended query protocol} with explicit Parse/Bind/Execute
+phases, which asyncpg uses for prepared statements. This enables binary data transfer
+(faster than text encoding) and server-side query plan caching. asyncpg's raw performance
+advantage over psycopg2 comes largely from this protocol-level optimization, not just from
+being non-blocking.
+\end{infobox}
+
+\begin{analogybox}
+\begin{itemize}
+    \item \textcolor{goblue}{\textbf{Go:}} \texttt{pgx} (the standard Go PG driver) uses the same
+          wire protocol approach --- it implements the PostgreSQL protocol directly on
+          non-blocking sockets, managed by Go's netpoller. Same architecture, different runtime.
+    \item \textcolor{BrickRed}{\textbf{Rust:}} \texttt{tokio-postgres} uses the same pattern ---
+          async reads/writes on a \texttt{TcpStream} via Tokio's reactor, parsing the PG wire
+          protocol in Rust.
+    \item \textcolor{javaorange}{\textbf{Java:}} R2DBC PostgreSQL driver (\texttt{r2dbc-postgresql})
+          does the same, reimplementing the wire protocol on non-blocking NIO channels instead of
+          using JDBC (which wraps libpq-style blocking I/O).
+\end{itemize}
+\end{analogybox}
+
+% ════════════════════════════════════════════════════════
+\chapter{Tooling \& Environment}
+
+Before touching any async code, let's get the toolchain right. Python 3.14 has a modern ecosystem
+that may feel unfamiliar if you're coming from older Python or from other languages.
+
+\section{Python 3.14 --- What Changed}
+
+Python 3.14 (released October 2025) is the target runtime. The most impactful changes for backend
+developers:
+
+\begin{itemize}
+    \item \textbf{Deferred annotation evaluation} (PEP 649) --- annotations are evaluated lazily.
+          Forward references work without quoting. If you've used Rust's type system or Kotlin's,
+          this will feel natural; Python finally stops choking on circular type references at import time.
+    \item \textbf{\py{asyncio.get\_event\_loop()} raises \py{RuntimeError}} --- no more implicit loop
+          creation. This is the single biggest breaking change for asyncio code. Think of it like Go
+          removing the global default \gocode{context.Background()} and forcing you to pass context explicitly.
+    \item \textbf{Template strings (t-strings)} --- tagged template literals similar to JavaScript/Kotlin,
+          but designed for safe SQL/HTML interpolation.
+    \item \textbf{\py{uuid.uuid7()}} --- time-ordered UUIDs. If you've used ULIDs in other ecosystems,
+          this is the stdlib equivalent. Better B-tree index locality than uuid4.
+    \item \textbf{Free-threaded build} --- experimental, not for production. Python is slowly moving
+          toward removing the GIL, similar to how Go had goroutines from day one.
+    \item \textbf{Asyncio introspection} --- \texttt{python -m asyncio ps <PID>} lets you inspect
+          running tasks in a live process, analogous to \texttt{goroutine dump} via \texttt{SIGQUIT}
+          in Go or \texttt{jstack} in Java.
+\end{itemize}
+
+\section{Package Manager: uv}
+
+\begin{dangerbox}
+Never use \texttt{pip}, \texttt{poetry}, or \texttt{conda}. The project uses \textbf{uv} exclusively.
+\end{dangerbox}
+
+\py{uv} is to Python what \gocode{go mod} is to Go, what \rustcode{cargo} is to Rust, or what
+Gradle is to Kotlin --- a unified tool for dependency management and task running. It's written in
+Rust and is orders of magnitude faster than pip.
+
+\begin{lstlisting}[style=shell]
+# Add a dependency (like `cargo add` or `go get`)
+uv add httpx
+
+# Run a tool (like `cargo run` or `go run`)
+uv run pytest
+uv run ruff check .
+\end{lstlisting}
+
+\begin{analogybox}
+\begin{tabularx}{\textwidth}{lllll}
+\textbf{Action} & \textcolor{goblue}{\textbf{Go}} & \textcolor{BrickRed}{\textbf{Rust}} & \textcolor{javaorange}{\textbf{Java/Kotlin}} & \textcolor{pyblue}{\textbf{Python 3.14}} \\
+\midrule
+Add dep     & \texttt{go get}          & \texttt{cargo add}   & \texttt{gradle add} & \texttt{uv add} \\
+Run         & \texttt{go run}          & \texttt{cargo run}   & \texttt{gradle run} & \texttt{uv run} \\
+Lock file   & \texttt{go.sum}          & \texttt{Cargo.lock}  & \texttt{gradle.lock} & \texttt{uv.lock} \\
+Manifest    & \texttt{go.mod}          & \texttt{Cargo.toml}  & \texttt{build.gradle} & \texttt{pyproject.toml} \\
+\end{tabularx}
+\end{analogybox}
+
+\section{Linting, Formatting, Type Checking}
+
+Three tools, each best-in-class:
+
+\begin{itemize}
+    \item \textbf{ruff} --- replaces flake8, isort, and black in a single Rust-based binary.
+          Think \texttt{rustfmt + clippy} combined, or \texttt{gofmt + go vet} in one tool.
+    \item \textbf{ty} (preferred) or \textbf{mypy --strict} --- static type checker.
+          \py{ty} is the newer, faster alternative. Analogous to the Go compiler's built-in type
+          checking, Rust's \texttt{cargo check}, or Kotlin's compiler.
+    \item \textbf{pytest + pytest-asyncio} --- testing framework. pytest is to Python what
+          \texttt{go test} is to Go or what JUnit 5 is to Java/Kotlin.
+\end{itemize}
+
+% ════════════════════════════════════════════════════════
+\chapter{The Event Loop \& Entry Points}
+
+\section{The Single Rule: \py{asyncio.run()}}
+
+If you know one thing, know this: the event loop is not something you ``get'' --- it's something
+you \emph{run}. The programming model is:
+
+\begin{enumerate}
+    \item Write an \py{async def main()}.
+    \item Call \py{asyncio.run(main())} from synchronous code.
+    \item Everything async happens inside that call.
+\end{enumerate}
+
+\begin{lstlisting}[style=python]
+import asyncio
+
+async def main() -> None:
+    print("Hello from the event loop")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+\end{lstlisting}
+
+\begin{analogybox}
+\begin{itemize}
+    \item \textcolor{goblue}{\textbf{Go:}} You don't create an event loop --- goroutines are
+          scheduled by the runtime. \py{asyncio.run()} is roughly equivalent to your \texttt{func main()}
+          --- it's the root of all concurrent work.
+    \item \textcolor{javaorange}{\textbf{Kotlin:}} This is \javacode{runBlocking \{ ... \}} ---
+          it bridges the sync world to the coroutine world.
+    \item \textcolor{BrickRed}{\textbf{Rust:}} This is \rustcode{\#[tokio::main]} or
+          \texttt{tokio::runtime::Runtime::new().block\_on(main())}.
+\end{itemize}
+\end{analogybox}
+
+\begin{dangerbox}[title={Removed patterns}]
+These will \textbf{crash} in Python 3.14:
+\begin{itemize}
+    \item \py{asyncio.get\_event\_loop()} --- raises \py{RuntimeError} if no loop is running.
+    \item \py{loop.run\_until\_complete()} --- don't use in application code.
+    \item \py{asyncio.ensure\_future()} --- removed; use \py{create\_task()}.
+    \item \py{@asyncio.coroutine} / \py{yield from} --- deleted generator-based coroutine syntax.
+\end{itemize}
+\end{dangerbox}
+
+\section{Multi-Phase Startup with \py{asyncio.Runner}}
+
+Sometimes you need to interleave sync and async during startup (e.g., run migrations between
+async init phases). Use \py{asyncio.Runner}:
+
+\begin{lstlisting}[style=python]
+with asyncio.Runner() as runner:
+    runner.run(init_db())       # async phase 1
+    apply_migrations()          # sync phase
+    runner.run(serve())         # async phase 2
+\end{lstlisting}
+
+\begin{infobox}
+\py{asyncio.Runner} reuses the same event loop across calls, unlike calling \py{asyncio.run()}
+multiple times (which creates and destroys a loop each time). This is useful when you have
+resources (connections, caches) that live on the loop.
+\end{infobox}
+
+\begin{analogybox}
+In Go, this problem doesn't exist because goroutines and sync code coexist naturally. In Rust/tokio,
+this is like creating a \rustcode{Runtime} manually and calling \texttt{.block\_on()} multiple times
+on the same runtime handle.
+\end{analogybox}
+
+% ════════════════════════════════════════════════════════
+\chapter{Structured Concurrency}
+
+This is the most important chapter. If you internalize one concept, make it this one.
+
+\section{The Problem with \py{gather()}}
+
+\py{asyncio.gather()} was the old way to run tasks concurrently. It has a critical flaw:
+\textbf{when one task fails, the others keep running.} You get a partial failure with zombied
+tasks leaking in the background.
+
+\begin{dangerbox}[title={Never use \py{asyncio.gather()}}]
+\begin{lstlisting}[style=python,numbers=none]
+# WRONG --- siblings continue after failure
+results = await asyncio.gather(
+    fetch_users(),
+    fetch_orders(),
+    return_exceptions=True,  # hides errors!
+)
+\end{lstlisting}
+Even with \py{return\_exceptions=True}, you're sweeping failures under the rug. The
+remaining tasks run unsupervised.
+\end{dangerbox}
+
+\begin{analogybox}
+This is the exact problem that motivated:
+\begin{itemize}
+    \item \textcolor{goblue}{\textbf{Go:}} \gocode{errgroup.Group} from \texttt{golang.org/x/sync/errgroup}
+          --- when one goroutine in the group returns an error, the shared context is cancelled,
+          signaling all siblings to stop.
+    \item \textcolor{javaorange}{\textbf{Java 21+:}} \javacode{StructuredTaskScope} (JEP 453) ---
+          \texttt{ShutdownOnFailure} policy cancels siblings on first exception, exactly like \py{TaskGroup}.
+    \item \textcolor{BrickRed}{\textbf{Rust:}} \rustcode{tokio::task::JoinSet} --- collects
+          tasks and cancels remaining on drop. Or the \texttt{futures::try\_join!} macro that
+          cancels on first error.
+\end{itemize}
+\end{analogybox}
+
+\section{\py{TaskGroup} --- The Right Way}
+
+\py{asyncio.TaskGroup} implements \textbf{structured concurrency}: all tasks spawned within the
+group are guaranteed to be finished or cancelled when the \py{async with} block exits.
+
+\begin{lstlisting}[style=python]
+async with asyncio.TaskGroup() as tg:
+    task_a = tg.create_task(fetch_users(), name="fetch-users")
+    task_b = tg.create_task(fetch_orders(), name="fetch-orders")
+# Both tasks are done here
+users = task_a.result()
+orders = task_b.result()
+\end{lstlisting}
+
+\begin{successbox}
+Key guarantees of \py{TaskGroup}:
+\begin{enumerate}
+    \item If any task raises, all siblings are \textbf{cancelled}.
+    \item The \py{async with} block doesn't exit until \textbf{all tasks} have finished (completed,
+          failed, or been cancelled).
+    \item Exceptions are collected into an \py{ExceptionGroup}, not silently dropped.
+\end{enumerate}
+\end{successbox}
+
+\begin{infobox}
+The \py{name} parameter on \py{create\_task()} is optional but strongly recommended. It shows up
+in tracebacks and in the new \texttt{asyncio ps} debugger, making production debugging
+much easier. Think of it like naming goroutines in Go's pprof labels.
+\end{infobox}
+
+\section{Exception Groups and \py{except*}}
+
+When multiple tasks fail inside a \py{TaskGroup}, you get an \py{ExceptionGroup} ---
+a container that holds multiple exceptions simultaneously. Python 3.11+ introduced
+\py{except*} syntax to handle them:
+
+\begin{lstlisting}[style=python]
+try:
+    async with asyncio.TaskGroup() as tg:
+        tg.create_task(might_fail())
+        tg.create_task(might_also_fail())
+except* ValueError as eg:
+    for exc in eg.exceptions:
+        log.error("ValueError: %s", exc)
+except* ConnectionError as eg:
+    for exc in eg.exceptions:
+        log.error("Connection failed: %s", exc)
+\end{lstlisting}
+
+\begin{warningbox}
+\py{except*} is not \py{except}. Key differences:
+\begin{itemize}
+    \item Multiple \py{except*} clauses can match from the \emph{same} \py{ExceptionGroup}
+          --- unlike regular \py{except} where only the first match wins.
+    \item \py{eg.exceptions} is a tuple of the matched exceptions within the group.
+    \item Unmatched exceptions propagate upward automatically.
+\end{itemize}
+\end{warningbox}
+
+\begin{analogybox}
+\begin{itemize}
+    \item \textcolor{goblue}{\textbf{Go:}} Go has no equivalent --- \gocode{errgroup} gives you
+          back a single error (the first one). You'd need \texttt{multierr} or a custom
+          multi-error type. Python's \py{ExceptionGroup} is richer.
+    \item \textcolor{javaorange}{\textbf{Java:}} \javacode{StructuredTaskScope.ShutdownOnFailure}
+          also returns only the first exception. The concept of exception groups doesn't exist in
+          Java/Kotlin. Python is ahead here.
+    \item \textcolor{BrickRed}{\textbf{Rust:}} \rustcode{JoinSet} returns results one-by-one via
+          \texttt{.join\_next()}. Multiple errors must be collected manually. No language-level
+          multi-error handling.
+\end{itemize}
+\end{analogybox}
+
+% ════════════════════════════════════════════════════════
+\chapter{Timeouts \& Cancellation}
+
+\section{Timeouts with \py{asyncio.timeout()}}
+
+Every external I/O call must be wrapped in a timeout. No exceptions. A hung HTTP call or
+database query without a timeout is a resource leak waiting to happen.
+
+\begin{lstlisting}[style=python]
+async with asyncio.timeout(5.0):
+    data = await client.get("/api/resource")
+\end{lstlisting}
+
+For absolute deadlines (e.g., ``finish by timestamp X''):
+
+\begin{lstlisting}[style=python]
+deadline = asyncio.get_running_loop().time() + 30.0
+async with asyncio.timeout_at(deadline):
+    await long_running_operation()
+\end{lstlisting}
+
+\begin{dangerbox}[title={Do not use \py{asyncio.wait\_for()}}]
+\py{wait\_for()} exists but has subtle cancellation bugs and worse semantics than the
+context-manager approach. Always use \py{asyncio.timeout()}.
+\end{dangerbox}
+
+\begin{analogybox}
+\begin{itemize}
+    \item \textcolor{goblue}{\textbf{Go:}} This is \gocode{context.WithTimeout(ctx, 5*time.Second)}.
+          The context manager pattern in Python mirrors Go's \texttt{defer cancel()} pattern ---
+          when the block exits, the timeout is cleaned up.
+    \item \textcolor{javaorange}{\textbf{Kotlin:}} \javacode{withTimeout(5000) \{ ... \}}
+          from \texttt{kotlinx.coroutines}. Nearly identical API.
+    \item \textcolor{BrickRed}{\textbf{Rust:}} \rustcode{tokio::time::timeout(Duration::from\_secs(5), fut).await}.
+          Same idea, function wrapper instead of context manager.
+\end{itemize}
+\end{analogybox}
+
+\section{Cancellation Discipline}
+
+Cancellation in Python's asyncio works by injecting a \py{CancelledError} at the next
+\py{await} point. This is cooperative cancellation --- the coroutine must actually hit an
+\py{await} to notice it's been cancelled.
+
+\begin{successbox}[title={The Rules}]
+\begin{enumerate}
+    \item \textbf{Never swallow \py{CancelledError}}. If you catch it, always re-raise.
+    \item Use \py{try/finally} for cleanup, not \py{try/except CancelledError}.
+    \item \textbf{Never} call \py{task.cancel()} on tasks managed by a \py{TaskGroup} ---
+          the group handles cancellation internally.
+\end{enumerate}
+\end{successbox}
+
+The cleanup pattern --- \py{try/finally} ensures resources are released even on cancellation:
+
+\begin{lstlisting}[style=python]
+async def worker() -> None:
+    conn = await connect()
+    try:
+        await process(conn)
+    finally:
+        await conn.close()  # runs even on cancellation
+\end{lstlisting}
+
+\subsection{How to Initiate Cancellation}
+
+Outside of a \py{TaskGroup}, you cancel a task explicitly with \py{task.cancel()}:
+
+\begin{lstlisting}[style=python]
+async def main() -> None:
+    task = asyncio.create_task(long_running_work())
+
+    await asyncio.sleep(5.0)
+    task.cancel()  # request cancellation
+
+    try:
+        await task  # let CancelledError propagate
+    except asyncio.CancelledError:
+        log.info("task was cancelled cleanly")
+\end{lstlisting}
+
+In practice, you rarely call \py{task.cancel()} directly. The higher-level mechanisms do it for you:
+
+\begin{itemize}
+    \item \py{asyncio.timeout()} --- cancels on deadline.
+    \item \py{TaskGroup} --- cancels siblings when one fails.
+\end{itemize}
+
+\begin{analogybox}
+\begin{itemize}
+    \item \textcolor{goblue}{\textbf{Go:}} Cancellation via \gocode{context.Context} is also
+          cooperative --- goroutines check \texttt{ctx.Done()} or \texttt{ctx.Err()}. The difference
+          is that Go doesn't inject an exception; you poll. Python injects at \py{await} points.
+    \item \textcolor{javaorange}{\textbf{Kotlin:}} Identical model. \javacode{CancellationException}
+          is thrown at suspension points. The rule ``never swallow it'' is the same in both languages.
+    \item \textcolor{BrickRed}{\textbf{Rust:}} Cancellation happens by \emph{dropping} the future.
+          Synchronous \texttt{Drop} destructors \emph{do} run --- RAII cleanup works
+          (file handles close, mutex guards release, memory is freed). But any \emph{async}
+          cleanup code inside the future body (e.g., \texttt{conn.shutdown().await}) never executes,
+          because the future is never polled again.
+          For cooperative cancellation with async cleanup, Tokio provides
+          \texttt{tokio\_util::sync::CancellationToken} --- the caller sets the token, and the
+          task checks it at \texttt{.await} points, similar to Go's context pattern:
+\begin{lstlisting}[style=rust,numbers=none]
+// Rust: cooperative cancellation with CancellationToken
+tokio::select! {
+    _ = token.cancelled() => {
+        conn.shutdown().await; // async cleanup runs
+    }
+    result = do_work() => { handle(result); }
+}
+\end{lstlisting}
+\end{itemize}
+\end{analogybox}
+
+% ════════════════════════════════════════════════════════
+\chapter{Backpressure \& Resource Limits}
+
+\section{Why Backpressure Matters}
+
+Without backpressure, a fast producer can overwhelm a slow consumer, causing unbounded memory
+growth and eventual OOM. This is a problem in every async runtime, but Python makes it easy
+to forget because queues default to unbounded.
+
+\begin{dangerbox}[title={Unbounded queues are a bug}]
+\py{asyncio.Queue()} without \py{maxsize} is unbounded. Always set \py{maxsize}.
+\end{dangerbox}
+
+\section{Bounded Queues}
+
+\begin{lstlisting}[style=python]
+# Producer blocks (awaits) when queue is full
+queue: asyncio.Queue[WorkItem] = asyncio.Queue(maxsize=100)
+\end{lstlisting}
+
+\begin{analogybox}
+\begin{itemize}
+    \item \textcolor{goblue}{\textbf{Go:}} \gocode{make(chan WorkItem, 100)} --- Go channels are
+          bounded by default if you specify a capacity. Python queues are unbounded by default.
+          Always pass \py{maxsize}.
+    \item \textcolor{javaorange}{\textbf{Java:}} \javacode{new ArrayBlockingQueue<>(100)} ---
+          Java's bounded blocking queue. Same concept.
+    \item \textcolor{BrickRed}{\textbf{Rust:}} \rustcode{tokio::sync::mpsc::channel(100)} ---
+          Tokio's bounded channel. The sender's \texttt{.send().await} suspends when full.
+\end{itemize}
+\end{analogybox}
+
+\section{Semaphores for Concurrency Limiting}
+
+Use \py{asyncio.Semaphore} to limit concurrent access to a shared resource (e.g., connection pool,
+rate-limited API):
+
+\begin{lstlisting}[style=python]
+sem = asyncio.Semaphore(20)
+
+async def rate_limited_fetch(url: str) -> Response:
+    async with sem:
+        return await client.get(url)
+\end{lstlisting}
+
+\begin{infobox}
+For \py{StreamWriter} (raw TCP), always call \py{writer.drain()} after \py{writer.write()}.
+The \py{drain()} coroutine suspends until the write buffer is flushed, preventing you from
+piling up data faster than the network can send it.
+\end{infobox}
+
+% ════════════════════════════════════════════════════════
+\chapter{Blocking \& CPU-Bound Work}
+
+\section{The Golden Rule}
+
+\begin{dangerbox}[title={Never block the event loop}]
+Running synchronous, blocking, or CPU-intensive code directly in an async function
+\textbf{freezes the entire event loop}. No other coroutine can make progress.
+This is the \#1 production bug in async Python.
+\end{dangerbox}
+
+\begin{analogybox}
+\begin{itemize}
+    \item \textcolor{goblue}{\textbf{Go:}} Goroutines are preemptively scheduled, so a
+          CPU-bound goroutine doesn't block others (since Go 1.14). Python's event loop is
+          \emph{cooperative} --- one blocked coroutine stops everything.
+    \item \textcolor{javaorange}{\textbf{Kotlin:}} Same problem exists. Kotlin docs warn against
+          CPU-bound work in \texttt{Dispatchers.Main}; you use \texttt{Dispatchers.Default} or
+          \texttt{Dispatchers.IO} instead. Python's equivalent is \py{to\_thread()} and
+          \py{run\_in\_executor()}.
+    \item \textcolor{BrickRed}{\textbf{Rust:}} Tokio has the same issue. You use
+          \rustcode{tokio::task::spawn\_blocking()} to offload blocking work to a thread pool.
+          Python's \py{asyncio.to\_thread()} is the direct equivalent.
+\end{itemize}
+\end{analogybox}
+
+\section{Offloading Blocking I/O}
+
+For synchronous library calls (legacy DB drivers, file I/O, etc.), use \py{asyncio.to\_thread()}:
+
+\begin{lstlisting}[style=python]
+result = await asyncio.to_thread(sync_db_call, query)
+\end{lstlisting}
+
+This runs the function in a \py{ThreadPoolExecutor}, keeping the event loop free.
+
+\section{Offloading CPU-Bound Work}
+
+For CPU-intensive work (data processing, image manipulation, cryptography), threads won't help
+due to the GIL\footnote{The Global Interpreter Lock prevents multiple threads from executing
+Python bytecode simultaneously. The free-threaded build in 3.14 is experimental.}. Use
+\py{ProcessPoolExecutor}:
+
+\begin{lstlisting}[style=python]
+from concurrent.futures import ProcessPoolExecutor
+
+executor = ProcessPoolExecutor(max_workers=4)
+
+async def heavy_compute(data: bytes) -> Result:
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(executor, process_data, data)
+\end{lstlisting}
+
+\begin{warningbox}
+Note the use of \py{asyncio.get\_running\_loop()} here --- not \py{get\_event\_loop()}.
+The former returns the loop that's currently running (safe). The latter tries to get or
+create a loop (broken in 3.14).
+\end{warningbox}
+
+\begin{analogybox}
+CPU parallelism varies drastically across languages because of the GIL:
+\begin{itemize}
+    \item \textcolor{goblue}{\textbf{Go:}} This problem doesn't exist. Goroutines run on multiple
+          OS threads by default (\texttt{GOMAXPROCS} = CPU count). CPU-bound goroutines run truly
+          in parallel. No GIL, no \texttt{ProcessPoolExecutor} --- just \texttt{go func()}.
+    \item \textcolor{javaorange}{\textbf{Java/Kotlin:}} No GIL either. Use
+          \javacode{Dispatchers.Default} (sized to CPU cores) for CPU-bound coroutines, or
+          \texttt{ForkJoinPool} for parallel streams. Java threads are real OS threads with
+          true parallelism.
+    \item \textcolor{BrickRed}{\textbf{Rust:}} No GIL. Use \texttt{rayon} for data parallelism
+          (parallel iterators) or \rustcode{std::thread::spawn()} for OS threads. In async code,
+          \rustcode{tokio::task::spawn\_blocking()} offloads to a thread pool --- but unlike Python,
+          the offloaded code runs truly parallel with other threads, not serialized by a lock.
+\end{itemize}
+\vspace{4pt}
+\textbf{Bottom line:} Python is the only language here where CPU-bound work requires process
+boundaries for true parallelism. The free-threaded build (3.14, experimental) aims to fix this.
+\end{analogybox}
+
+% ════════════════════════════════════════════════════════
+\chapter{Type Annotations}
+
+\section{Modern Python Type Syntax}
+
+Python 3.14 uses built-in generics and union syntax. No imports from \py{typing} needed
+for basic types.
+
+\begin{migrationbox}
+\begin{tabularx}{\textwidth}{lX}
+\textbf{Old (pre-3.9)} & \textbf{Python 3.14} \\
+\midrule
+\py{typing.List[str]} & \py{list[str]} \\
+\py{typing.Dict[str, int]} & \py{dict[str, int]} \\
+\py{typing.Optional[User]} & \py{User | None} \\
+\py{typing.Union[str, bytes]} & \py{str | bytes} \\
+\py{typing.Tuple[int, ...]} & \py{tuple[int, ...]} \\
+\end{tabularx}
+\end{migrationbox}
+
+\begin{lstlisting}[style=python]
+# Built-in generics --- no imports needed
+def process(items: list[str]) -> dict[str, int]: ...
+
+# Union with | syntax
+def parse(value: str | bytes) -> Result: ...
+
+# Async function signatures --- always annotate return type
+async def fetch_user(user_id: int) -> User | None: ...
+
+# Abstract types from collections.abc
+from collections.abc import (
+    AsyncIterator, Callable, Coroutine, Sequence,
+)
+
+async def stream_events() -> AsyncIterator[Event]:
+    async for event in event_source:
+        yield event
+\end{lstlisting}
+
+\subsection{Protocol vs ABC: Structural vs Nominal Typing}
+
+The difference is \emph{how} a type satisfies an interface:
+
+\begin{itemize}
+    \item \textbf{ABC (nominal):} A class must \emph{explicitly inherit} from the interface.
+    \item \textbf{Protocol (structural):} A class satisfies the interface if it has the right
+          methods/attributes. No inheritance needed.
+\end{itemize}
+
+\begin{lstlisting}[style=python]
+# --- ABC approach: requires explicit inheritance ---
+from abc import ABC, abstractmethod
+
+class Repository(ABC):
+    @abstractmethod
+    async def find(self, id: int) -> Model | None: ...
+
+class UserRepo(Repository):  # MUST inherit Repository
+    async def find(self, id: int) -> User | None:
+        return await db.get(User, id)
+
+# --- Protocol approach: structural matching ---
+from typing import Protocol
+
+class Repository(Protocol):
+    async def find(self, id: int) -> Model | None: ...
+
+class UserRepo:  # No inheritance! Just has the right shape.
+    async def find(self, id: int) -> User | None:
+        return await db.get(User, id)
+
+# UserRepo satisfies Repository because it has a matching
+# find() method --- the type checker verifies this statically.
+async def get_by_id(repo: Repository, id: int) -> Model | None:
+    return await repo.find(id)
+
+get_by_id(UserRepo(), 42)  # OK --- structural match
+\end{lstlisting}
+
+\begin{successbox}[title={Prefer Protocol}]
+Use \py{Protocol} when the interface is consumed by your code (dependency injection,
+service boundaries). Use \py{ABC} only when you need to enforce inheritance hierarchies
+or share default implementations via methods.
+\end{successbox}
+
+\begin{analogybox}
+\begin{itemize}
+    \item \textcolor{goblue}{\textbf{Go:}} Go interfaces are \emph{always} structural ---
+          if a type has the methods, it satisfies the interface. No \texttt{implements} keyword.
+          Python's \py{Protocol} is the exact equivalent. Python's \py{ABC} has no Go counterpart.
+    \item \textcolor{javaorange}{\textbf{Java/Kotlin:}} Java interfaces are always nominal ---
+          you must write \javacode{implements Foo}. This is how Python's \py{ABC} works.
+          Java has no structural typing equivalent.
+    \item \textcolor{BrickRed}{\textbf{Rust:}} Rust traits are nominal (\rustcode{impl Trait for Type}),
+          but trait \emph{bounds} on generics achieve a Protocol-like effect --- you define the
+          required shape, and any type that implements those traits is accepted:
+\begin{lstlisting}[style=rust,numbers=none]
+// Rust: trait bounds constrain by capability
+fn get_by_id<R: Repository>(repo: &R, id: i64) -> Option<Model> {
+    repo.find(id)    // R must impl Repository
+}
+// Any type that `impl Repository` works --- explicit impl,
+// but generic bounds give the same "shape matching" feel.
+
+// Trait objects for dynamic dispatch (like Python's Protocol):
+async fn get_by_id(repo: &dyn Repository, id: i64) -> Option<Model>
+\end{lstlisting}
+\end{itemize}
+\end{analogybox}
+
+\section{Deferred Annotation Evaluation (PEP 649)}
+
+In Python 3.14, annotations are evaluated lazily. This means forward references work without
+quoting:
+
+\begin{lstlisting}[style=python]
+# This works in 3.14 --- no need for quotes or
+# from __future__ import annotations
+class TreeNode:
+    def add_child(self, child: TreeNode) -> None: ...
+\end{lstlisting}
+
+\begin{infobox}
+In older Python, you'd need \py{"TreeNode"} (string annotation) or
+\py{from \_\_future\_\_ import annotations}. Python 3.14 makes this unnecessary by
+evaluating annotations only when explicitly requested (e.g., by type checkers or
+\py{get\_type\_hints()}).
+\end{infobox}
+
+% ════════════════════════════════════════════════════════
+\chapter{Async Library Choices}
+
+Choosing the right async library matters. The wrong choice means fighting the framework
+instead of building your application.
+
+\section{Recommended Stack}
+
+\begin{center}
+\begin{tcolorbox}[
+    colback=codebg,
+    colframe=pyblue,
+    width=0.95\textwidth,
+    arc=3pt,
+    boxrule=1pt,
+]
+\renewcommand{\arraystretch}{1.4}
+\begin{tabularx}{\textwidth}{>{\bfseries}l l X}
+\toprule
+Purpose & Library & Notes \\
+\midrule
+HTTP client & \py{httpx} & Async-native, HTTP/2, sync+async in one library \\
+Web framework & \py{FastAPI} & Async-first, Pydantic v2 validation \\
+ORM / DB & \py{SQLAlchemy 2.x} async & \texttt{from sqlalchemy.ext.asyncio import ...} \\
+PostgreSQL & \py{asyncpg} & Fastest async PG driver \\
+Redis & \py{redis.asyncio} & Official async support \\
+WebSocket & \py{websockets} & Or FastAPI's built-in WebSocket support \\
+Task queue & \py{arq} or \py{taskiq} & Async-native alternatives to Celery \\
+\bottomrule
+\end{tabularx}
+\end{tcolorbox}
+\end{center}
+
+\begin{dangerbox}[title={Do not use aiohttp}]
+For new projects, use \py{httpx.AsyncClient} instead of \py{aiohttp}. httpx has a better API,
+supports HTTP/2, and provides both sync and async clients in one library (useful for testing).
+\end{dangerbox}
+
+\begin{analogybox}
+\begin{itemize}
+    \item \textcolor{goblue}{\textbf{Go:}} Go's \texttt{net/http} is both sync and async
+          transparently. httpx is the closest Python equivalent --- one library, both modes.
+    \item \textcolor{javaorange}{\textbf{Java/Kotlin:}} FastAPI is comparable to Ktor (Kotlin)
+          or Spring WebFlux (Java) --- async-first web framework with validation.
+    \item \textcolor{BrickRed}{\textbf{Rust:}} httpx $\approx$ \texttt{reqwest}, FastAPI $\approx$
+          \texttt{axum}, SQLAlchemy async $\approx$ \texttt{sqlx}.
+\end{itemize}
+\end{analogybox}
+
+% ════════════════════════════════════════════════════════
+\chapter{Project Structure}
+
+\section{Canonical Layout}
+
+\begin{lstlisting}[style=directory]
+project/
+|-- pyproject.toml
+|-- CLAUDE.md
+|-- src/
+|   +-- myapp/
+|       |-- __init__.py
+|       |-- main.py          # asyncio.run() entry
+|       |-- config.py        # pydantic Settings
+|       |-- models/          # domain models / SQLAlchemy
+|       |-- services/        # business logic (async)
+|       |-- api/             # FastAPI routers
+|       |-- clients/         # external HTTP/gRPC clients
+|       +-- infra/           # DB, cache, queue adapters
+|-- tests/
+|   |-- conftest.py          # async fixtures
+|   |-- unit/
+|   +-- integration/
++-- uv.lock
+\end{lstlisting}
+
+\begin{analogybox}
+\begin{itemize}
+    \item \textcolor{goblue}{\textbf{Go:}} The \texttt{src/myapp/} structure with sub-packages
+          mirrors Go's \texttt{internal/} package pattern. \texttt{main.py} is your \texttt{cmd/server/main.go}.
+    \item \textcolor{BrickRed}{\textbf{Rust:}} \texttt{src/myapp/} $\approx$ \texttt{src/},
+          \texttt{main.py} $\approx$ \texttt{main.rs}. The \texttt{services/} and \texttt{infra/}
+          split mirrors the hexagonal architecture common in Rust web apps.
+    \item \textcolor{javaorange}{\textbf{Java/Kotlin:}} This follows the same layered architecture:
+          \texttt{api/} = controllers, \texttt{services/} = service layer, \texttt{infra/} = repositories.
+\end{itemize}
+\end{analogybox}
+
+\begin{infobox}
+Key files:
+\begin{itemize}
+    \item \textbf{\texttt{pyproject.toml}} --- the single source of truth for project metadata,
+          dependencies, and tool configuration (pytest, ruff, ty).
+    \item \textbf{\texttt{uv.lock}} --- deterministic lockfile. Commit it. Never edit manually.
+    \item \textbf{\texttt{conftest.py}} --- shared pytest fixtures. Async fixtures go here.
+\end{itemize}
+\end{infobox}
+
+% ════════════════════════════════════════════════════════
+\chapter{Testing Async Code}
+
+\section{Setup: pytest-asyncio with Auto Mode}
+
+Add this to \texttt{pyproject.toml}:
+
+\begin{lstlisting}[style=toml]
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+\end{lstlisting}
+
+With \py{auto} mode, any \py{async def test\_...} function is automatically recognized as
+an async test. No decorators needed.
+
+\begin{migrationbox}
+Without auto mode, you'd need \py{@pytest.mark.asyncio} on every async test. Auto mode
+eliminates this boilerplate entirely.
+\end{migrationbox}
+
+\section{Writing Async Tests}
+
+\begin{lstlisting}[style=python]
+# No decorator needed with mode=auto
+async def test_fetch_user(db_session: AsyncSession) -> None:
+    user = await create_user(db_session, name="Alex")
+    fetched = await get_user(db_session, user.id)
+    assert fetched is not None
+    assert fetched.name == "Alex"
+\end{lstlisting}
+
+\section{Async Fixtures}
+
+Fixtures can be async too. Use \py{AsyncIterator} for fixtures that need cleanup:
+
+\begin{lstlisting}[style=python]
+from collections.abc import AsyncIterator
+
+@pytest.fixture
+async def db_session() -> AsyncIterator[AsyncSession]:
+    async with async_session_maker() as session:
+        yield session
+        await session.rollback()
+\end{lstlisting}
+
+\begin{analogybox}
+\begin{itemize}
+    \item \textcolor{goblue}{\textbf{Go:}} Go's \texttt{testing.T} with \texttt{t.Cleanup()}
+          is the rough equivalent. Python's fixture system is more powerful --- fixtures are
+          dependency-injected by name.
+    \item \textcolor{javaorange}{\textbf{Java/Kotlin:}} Think JUnit 5's \texttt{@BeforeEach}
+          and \texttt{@AfterEach}, but with dependency injection and composability.
+    \item \textcolor{BrickRed}{\textbf{Rust:}} Rust doesn't have built-in fixtures. Libraries
+          like \texttt{rstest} provide similar DI-based fixture injection.
+\end{itemize}
+\end{analogybox}
+
+\section{Testing TaskGroup Error Handling}
+
+Use \py{pytest.raises(ExceptionGroup)} to test that \py{TaskGroup} failures propagate correctly:
+
+\begin{lstlisting}[style=python]
+async def test_task_failure_cancels_siblings() -> None:
+    results: list[str] = []
+    with pytest.raises(ExceptionGroup) as exc_info:
+        async with asyncio.TaskGroup() as tg:
+            tg.create_task(append_after(results, "ok", 0.1))
+            tg.create_task(fail_after(0.05))
+    assert len(exc_info.value.exceptions) == 1
+\end{lstlisting}
+
+% ════════════════════════════════════════════════════════
+\chapter{Error Handling}
+
+\section{Application Error Hierarchy}
+
+Define a base exception class and derive specific errors from it. Keep it simple:
+
+\begin{lstlisting}[style=python]
+class AppError(Exception):
+    """Base for all application errors."""
+
+class NotFoundError(AppError):
+    """Resource not found."""
+
+class ValidationError(AppError):
+    """Input validation failed."""
+\end{lstlisting}
+
+\begin{successbox}[title={Error propagation strategy}]
+\begin{enumerate}
+    \item \textbf{Service layer:} raise errors, don't catch them.
+    \item \textbf{API boundary:} catch and convert to HTTP responses.
+    \item \textbf{Let it crash:} unexpected errors should propagate to the top and be logged.
+\end{enumerate}
+\end{successbox}
+
+\begin{lstlisting}[style=python]
+# Service layer --- raise, don't catch
+async def get_user(user_id: int) -> User:
+    user = await repo.find(user_id)
+    if user is None:
+        raise NotFoundError(f"User {user_id} not found")
+    return user
+
+# API boundary --- convert to HTTP
+@app.exception_handler(NotFoundError)
+async def not_found_handler(
+    request: Request, exc: NotFoundError,
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=404,
+        content={"detail": str(exc)},
+    )
+\end{lstlisting}
+
+\begin{analogybox}
+\begin{itemize}
+    \item \textcolor{goblue}{\textbf{Go:}} Go uses error values, not exceptions. The pattern of
+          ``propagate errors up, handle at boundaries'' is the same, but expressed with
+          \texttt{if err != nil \{ return err \}} instead of try/except.
+    \item \textcolor{javaorange}{\textbf{Java/Kotlin:}} This mirrors Spring's
+          \texttt{@ExceptionHandler} pattern. Service throws, controller translates to HTTP status.
+    \item \textcolor{BrickRed}{\textbf{Rust:}} This is the \rustcode{Result<T, E>} pattern with
+          the \texttt{?} operator for propagation and an error handler middleware in axum/actix.
+\end{itemize}
+\end{analogybox}
+
+% ════════════════════════════════════════════════════════
+\chapter{Graceful Shutdown}
+
+\section{Signal Handling in Async Services}
+
+Production services must handle SIGTERM (from container orchestrators) and SIGINT (Ctrl+C)
+cleanly. The pattern:
+
+\begin{lstlisting}[style=python]
+import asyncio
+import signal
+
+async def main() -> None:
+    shutdown_event = asyncio.Event()
+    loop = asyncio.get_running_loop()
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, shutdown_event.set)
+
+    server = await start_server()
+    await shutdown_event.wait()
+
+    # Graceful shutdown
+    server.close()
+    await server.wait_closed()
+    await cleanup_resources()
+\end{lstlisting}
+
+\begin{infobox}
+\py{asyncio.Event} is used as a signal bridge between the OS signal (sync) and the async world.
+When the signal fires, it sets the event, which unblocks \py{shutdown\_event.wait()}.
+\end{infobox}
+
+\begin{analogybox}
+\begin{itemize}
+    \item \textcolor{goblue}{\textbf{Go:}} This is the
+          \gocode{signal.NotifyContext(ctx, ...)} pattern. Context cancellation triggers cleanup
+          via \texttt{defer} and \texttt{<-ctx.Done()}.
+    \item \textcolor{javaorange}{\textbf{Java:}} \javacode{Runtime.getRuntime().addShutdownHook(...)}.
+          Python's approach is more integrated with the async runtime.
+    \item \textcolor{BrickRed}{\textbf{Rust:}} \rustcode{tokio::signal::ctrl\_c().await}
+          or \texttt{signal::unix::signal(...)}. Same cooperative pattern.
+\end{itemize}
+\end{analogybox}
+
+% ════════════════════════════════════════════════════════
+\chapter{Logging}
+
+\section{Structured Logging Only}
+
+Use \py{structlog} or stdlib \py{logging} with a JSON formatter. \textbf{Never use \py{print()}
+for application output.}
+
+\begin{lstlisting}[style=python]
+import logging
+
+logger = logging.getLogger(__name__)
+
+# In async code --- log with context
+logger.info(
+    "processing request",
+    extra={"user_id": user_id, "endpoint": path},
+)
+\end{lstlisting}
+
+\begin{warningbox}
+Why not \py{print()}? It's not structured (can't be parsed by log aggregators), has no log levels,
+no timestamps, and goes to stdout without buffering control. In production, unstructured logs
+are nearly useless for debugging.
+\end{warningbox}
+
+\begin{analogybox}
+\begin{itemize}
+    \item \textcolor{goblue}{\textbf{Go:}} This is equivalent to using \texttt{slog} (structured
+          logging, added in Go 1.21) instead of \texttt{fmt.Println}. Same motivation.
+    \item \textcolor{javaorange}{\textbf{Java/Kotlin:}} SLF4J + Logback with JSON encoder.
+          \py{structlog} serves the same role.
+    \item \textcolor{BrickRed}{\textbf{Rust:}} \texttt{tracing} crate with \texttt{tracing-subscriber}.
+          Same structured, context-carrying approach.
+\end{itemize}
+\end{analogybox}
+
+% ════════════════════════════════════════════════════════
+\chapter{Python 3.14 Specific Features}
+
+A reference of Python 3.14 features you should actively use in this project.
+
+\section{Quick Reference}
+
+\begin{center}
+\renewcommand{\arraystretch}{1.4}
+\begin{tcolorbox}[
+    colback=codebg,
+    colframe=pyblue,
+    width=0.98\textwidth,
+    arc=3pt,
+    boxrule=1pt,
+]
+\begin{tabularx}{\textwidth}{>{\bfseries\ttfamily}l X}
+\toprule
+Feature & When to Use \\
+\midrule
+uuid.uuid7() & New DB primary keys --- time-ordered, better index perf than uuid4 \\
+asyncio ps/pstree & Production debugging of stuck/hanging tasks \\
+t-strings & Safe SQL/HTML templating (library support required) \\
+date.strptime() & Parse dates directly instead of going through datetime \\
+Protocol & Interfaces --- prefer over ABC for structural typing \\
+PEP 649 & Forward references work without quotes --- just write types \\
+\bottomrule
+\end{tabularx}
+\end{tcolorbox}
+\end{center}
+
+\section{\py{uuid.uuid7()} --- Time-Ordered UUIDs}
+
+\begin{lstlisting}[style=python]
+import uuid
+
+# Old way --- random, poor index locality
+pk = uuid.uuid4()
+
+# New way --- time-ordered, better B-tree performance
+pk = uuid.uuid7()
+\end{lstlisting}
+
+\begin{infobox}
+UUIDv7 encodes a millisecond timestamp in the most significant bits. This means that
+UUIDs generated close in time are close in sort order, which dramatically improves B-tree
+index performance for insert-heavy workloads. If you've used ULIDs, KSUIDs, or Snowflake IDs
+in other ecosystems, this is the stdlib equivalent.
+\end{infobox}
+
+\section{Asyncio Process Introspection}
+
+Debug stuck async tasks in a running production process:
+
+\begin{lstlisting}[style=shell]
+# List all running tasks (like `goroutine dump` in Go)
+python -m asyncio ps <PID>
+
+# Show task parent-child tree
+python -m asyncio pstree <PID>
+\end{lstlisting}
+
+\begin{analogybox}
+\begin{itemize}
+    \item \textcolor{goblue}{\textbf{Go:}} \texttt{SIGQUIT} or \texttt{runtime/pprof} goroutine dump
+    \item \textcolor{javaorange}{\textbf{Java:}} \texttt{jstack <PID>} or \texttt{Thread.getAllStackTraces()}
+    \item \textcolor{BrickRed}{\textbf{Rust:}} \texttt{tokio-console} for inspecting Tokio tasks
+\end{itemize}
+\end{analogybox}
+
+% ════════════════════════════════════════════════════════
+\chapter{The Anti-Patterns List}
+
+A comprehensive list of things that will cause bugs, crashes, or maintenance headaches.
+Each item is a hard rule, not a suggestion.
+
+\vspace{12pt}
+
+\begin{center}
+\renewcommand{\arraystretch}{1.5}
+\begin{tcolorbox}[
+    colback=dangerbg,
+    colframe=dangerborder,
+    coltitle=white,
+    colbacktitle=dangerborder,
+    fonttitle=\bfseries\sffamily\large,
+    title={Banned Patterns},
+    arc=3pt,
+    boxrule=1.5pt,
+    width=0.98\textwidth,
+]
+\small
+\begin{tabularx}{\textwidth}{>{\ttfamily\color{dangerborder}}p{4.5cm} X}
+\toprule
+\normalfont\textbf{Do NOT use} & \textbf{Use instead} \\
+\midrule
+asyncio.gather()           & \py{asyncio.TaskGroup} \\
+asyncio.get\_event\_loop() & \py{asyncio.run()} or \py{asyncio.get\_running\_loop()} \\
+asyncio.ensure\_future()   & \py{tg.create\_task()} within a TaskGroup \\
+@asyncio.coroutine         & \py{async def} (generator syntax was removed) \\
+yield from                 & \py{await} \\
+loop.run\_until\_complete() & \py{asyncio.run()} \\
+asyncio.wait\_for()        & \py{asyncio.timeout()} context manager \\
+aiohttp                    & \py{httpx.AsyncClient} \\
+pip install                & \py{uv add} \\
+typing.List / Dict / Optional & \py{list} / \py{dict} / \py{X | None} \\
+bare create\_task()         & \py{tg.create\_task()} inside a TaskGroup \\
+blocking code in async     & \py{asyncio.to\_thread()} or \py{run\_in\_executor()} \\
+catch CancelledError silently & always re-raise after cleanup \\
+print()                    & \py{logging} or \py{structlog} \\
+\bottomrule
+\end{tabularx}
+\end{tcolorbox}
+\end{center}
+
+% ════════════════════════════════════════════════════════
+\chapter*{Appendix: Mental Model Map}
+\addcontentsline{toc}{chapter}{Appendix: Mental Model Map}
+
+If you're coming from another language, use this table to map concepts:
+
+\vspace{12pt}
+
+\begin{center}
+\renewcommand{\arraystretch}{1.4}
+\begin{tcolorbox}[
+    colback=white,
+    colframe=pyblue!50!black,
+    coltitle=white,
+    colbacktitle=pyblue!70!black,
+    fonttitle=\bfseries\sffamily\large,
+    title={Concept Translation Table},
+    arc=3pt,
+    boxrule=1.5pt,
+    width=0.98\textwidth,
+]
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\newcommand{\tcell}[1]{\raggedright\arraybackslash #1}
+\begin{tabularx}{\textwidth}{>{\bfseries\raggedright\arraybackslash}p{1.8cm}
+    >{\raggedright\arraybackslash}p{2.5cm}
+    >{\raggedright\arraybackslash}p{2.2cm}
+    >{\raggedright\arraybackslash}p{2.5cm}
+    >{\raggedright\arraybackslash}p{2.5cm}}
+\toprule
+Concept &
+\textcolor{pyblue}{\textbf{Python 3.14}} &
+\textcolor{goblue}{\textbf{Go}} &
+\textcolor{javaorange}{\textbf{Kotlin}} &
+\textcolor{BrickRed}{\textbf{Rust/Tokio}} \\
+\midrule
+Entry point &
+\py{asyncio.run()} &
+\gocode{func main()} &
+\javacode{runBlocking} &
+\rustcode{\#[tokio::main]} \\
+Spawn task &
+\py{tg.create\_task()} &
+\gocode{go func()} &
+\javacode{launch \{\}} &
+\rustcode{tokio::spawn()} \\
+Structured group &
+\py{TaskGroup} &
+\gocode{errgroup} &
+\javacode{TaskScope} &
+\rustcode{JoinSet} \\
+Timeout &
+\py{asyncio.timeout()} &
+\gocode{ctx.WithTimeout} &
+\javacode{withTimeout} &
+\rustcode{time::timeout} \\
+Cancellation &
+\py{CancelledError} &
+\gocode{ctx.Err()} &
+\javacode{Cancellation\-Exception} &
+Drop future \\
+Bounded queue &
+\py{Queue(maxsize=N)} &
+\gocode{make(chan, N)} &
+\javacode{Channel(N)} &
+\rustcode{mpsc::channel(N)} \\
+Offload blocking &
+\py{to\_thread()} &
+N/A (preemptive) &
+\javacode{Dispatchers.IO} &
+\rustcode{spawn\_blocking} \\
+Semaphore &
+\py{asyncio.Semaphore} &
+\gocode{semaphore.\-Weighted} &
+\javacode{Semaphore} &
+\rustcode{sync::Semaphore} \\
+HTTP client &
+\py{httpx} &
+\gocode{net/http} &
+\javacode{Ktor / OkHttp} &
+\rustcode{reqwest} \\
+Web framework &
+\py{FastAPI} &
+\gocode{net/http} &
+\javacode{Ktor} &
+\rustcode{axum} \\
+Package mgr &
+\py{uv} &
+\gocode{go mod} &
+\javacode{Gradle} &
+\rustcode{cargo} \\
+Type checking &
+\py{ty / mypy} &
+Compiler &
+Compiler &
+Compiler \\
+Interface &
+\py{Protocol} &
+\gocode{interface} &
+\javacode{interface} &
+\rustcode{trait} \\
+\bottomrule
+\end{tabularx}
+\end{tcolorbox}
+\end{center}
+
+\vfill
+
+\begin{center}
+\rule{0.4\textwidth}{0.5pt}\\[6pt]
+{\small\sffamily\color{Gray}
+Generated from project CLAUDE.md --- March 2026}
+\end{center}
+
+\end{document}
